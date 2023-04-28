@@ -1,8 +1,32 @@
+*mini.misc* Miscellaneous functions
+*MiniMisc*
+
+MIT License Copyright (c) 2021 Evgeni Chasnovski
+
 ==============================================================================
-------------------------------------------------------------------------------
-                                                                     *mini.misc*
-                                                                      *MiniMisc*
-Miscellaneous useful functions.
+
+Features the following functions:
+- |MiniMisc.bench_time()| to benchmark function execution time.
+  Useful in combination with `stat_summary()`.
+
+- |MiniMisc.put()| and |MiniMisc.put_text()| to pretty print its arguments
+  into command line and current buffer respectively.
+
+- |MiniMisc.setup_auto_root()| to set up automated change of current directory.
+
+- |MiniMisc.setup_restore_cursor()| to set up automated restoration of
+  cursor position on file reopen.
+
+- |MiniMisc.stat_summary()| to compute summary statistics of numerical array.
+  Useful in combination with `bench_time()`.
+
+- |MiniMisc.tbl_head()| and |MiniMisc.tbl_tail()| to return "first" and "last"
+  elements of table.
+
+- |MiniMisc.zoom()| to zoom in and out of a buffer, making it full screen
+  in a floating window.
+
+- And more.
 
 # Setup~
 
@@ -22,7 +46,7 @@ will have no effect here.
 Module setup
 
 Parameters~
-{config} `(table)` Module config table. See |MiniMisc.config|.
+{config} `(table|nil)` Module config table. See |MiniMisc.config|.
 
 Usage~
 `require('mini.misc').setup({})` (replace `{}` with your `config` table)
@@ -47,7 +71,7 @@ Execute `f` several times and time how long it took
 
 Parameters~
 {f} `(function)` Function which execution to benchmark.
-{n} `(number)` Number of times to execute `f(...)`. Default: 1.
+{n} `(number|nil)` Number of times to execute `f(...)`. Default: 1.
 {...} `(any)` Arguments when calling `f`.
 
 Return~
@@ -60,7 +84,7 @@ Return~
 Compute width of gutter (info column on the left of the window)
 
 Parameters~
-{win_id} `(number)` Window identifier (see |win_getid()|) for which gutter
+{win_id} `(number|nil)` Window identifier (see |win_getid()|) for which gutter
   width is computed. Default: 0 for current.
 
 ------------------------------------------------------------------------------
@@ -85,16 +109,16 @@ Parameters~
 Resize window to have exact number of editable columns
 
 Parameters~
-{win_id} `(number)` Window identifier (see |win_getid()|) to be resized.
+{win_id} `(number|nil)` Window identifier (see |win_getid()|) to be resized.
   Default: 0 for current.
-{text_width} `(number)` Number of editable columns resized window will
+{text_width} `(number|nil)` Number of editable columns resized window will
   display. Default: first element of 'colorcolumn' or otherwise 'textwidth'
   (using screen width as its default but not more than 79).
 
 ------------------------------------------------------------------------------
                                                     *MiniMisc.setup_auto_root()*
                       `MiniMisc.setup_auto_root`({names})
-Setup automated change of current directory
+Set up automated change of current directory
 
 What it does:
 - Creates autocommand which on every |BufEnter| event with |MiniMisc.find_root()|
@@ -105,7 +129,7 @@ What it does:
 Note: requires |vim.fs| module (present in Neovim>=0.8).
 
 Parameters~
-{names} `(table|function)` Array of file names or a callable used to
+{names} `(table|function|nil)` Array of file names or a callable used to
   identify a root directory. Forwarded to |MiniMisc.find_root()|.
   Default: `{ '.git', 'Makefile' }`.
 
@@ -133,11 +157,35 @@ Notes:
   used in this function. Reload Neovim to account for that.
 
 Parameters~
-{buf_id} `(number)` Buffer identifier (see |bufnr()|) to use.
+{buf_id} `(number|nil)` Buffer identifier (see |bufnr()|) to use.
   Default: 0 for current.
-{names} `(table|function)` Array of file names or a callable used to
+{names} `(table|function|nil)` Array of file names or a callable used to
   identify a root directory. Forwarded to |vim.fs.find()|.
   Default: `{ '.git', 'Makefile' }`.
+
+------------------------------------------------------------------------------
+                                               *MiniMisc.setup_restore_cursor()*
+                    `MiniMisc.setup_restore_cursor`({opts})
+Restore cursor position on file open
+
+When reopening a file this will make sure the cursor is placed back to the
+position where you left before. This implements |restore-cursor| in a nicer way.
+File should have a recognized file type (see 'filetype') and be opened in
+a normal buffer (see 'buftype').
+
+Note: it relies on file mark data stored in 'shadafile' (see |shada-f|).
+Be sure to enable it.
+
+Parameters~
+{opts} `(table|nil)` Options for |MiniMisc.restore_cursor|. Possible fields:
+  - <center> - (boolean) Center the window after we restored the cursor.
+    Default: `true`.
+  - <ignore_filetype> - Array with file types to be ignored (see 'filetype').
+    Default: `{ "gitcommit", "gitrebase" }`.
+
+Usage~
+>
+  require('mini.misc').setup_restore_cursor()
 
 ------------------------------------------------------------------------------
                                                        *MiniMisc.stat_summary()*
@@ -164,7 +212,7 @@ Note: order of elements might vary.
 
 Parameters~
 {t} `(table)` Input table.
-{n} `(number)` Maximum number of first elements. Default: 5.
+{n} `(number|nil)` Maximum number of first elements. Default: 5.
 
 Return~
 `(table)` Table with at most `n` first elements of `t` (with same keys).
@@ -182,7 +230,7 @@ Note: order of elements might vary.
 
 Parameters~
 {t} `(table)` Input table.
-{n} `(number)` Maximum number of last elements. Default: 5.
+{n} `(number|nil)` Maximum number of last elements. Default: 5.
 
 Return~
 `(table)` Table with at most `n` last elements of `t` (with same keys).
@@ -211,7 +259,7 @@ with this filetype is entered, so using non-current `buf_id` can not lead
 to desired effect.
 
 Parameters~
-{buf_id} `(number)` Buffer identifier (see |bufnr()|) in which function
+{buf_id} `(number|nil)` Buffer identifier (see |bufnr()|) in which function
   will operate. Default: 0 for current.
 
 ------------------------------------------------------------------------------
@@ -224,9 +272,9 @@ needing to zoom into one to see more of the code from that buffer. Call it
 again (without arguments) to zoom out.
 
 Parameters~
-{buf_id} `(number)` Buffer identifier (see |bufnr()|) to be zoomed.
+{buf_id} `(number|nil)` Buffer identifier (see |bufnr()|) to be zoomed.
   Default: 0 for current.
-{config} `(table)` Optional config for window (as for |nvim_open_win()|).
+{config} `(table|nil)` Optional config for window (as for |nvim_open_win()|).
 
 
  vim:tw=78:ts=8:noet:ft=help:norl:

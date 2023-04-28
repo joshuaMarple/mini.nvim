@@ -1,9 +1,13 @@
--- MIT License Copyright (c) 2021 Evgeni Chasnovski
-
--- Documentation ==============================================================
---- Fast and flexible start screen. Displayed items are fully customizable both
---- in terms of what they do and how they look (with reasonable defaults). Item
---- selection can be done using prefix query with instant visual feedback.
+--- *mini.starter* Start screen
+--- *MiniStarter*
+---
+--- MIT License Copyright (c) 2021 Evgeni Chasnovski
+---
+--- ==============================================================================
+---
+--- Displayed items are fully customizable both in terms of what they do and
+--- how they look (with reasonable defaults). Item selection can be done using
+--- prefix query with instant visual feedback.
 ---
 --- Key design ideas:
 --- - All available actions are defined inside items. Each item should have the
@@ -13,18 +17,22 @@
 ---     - <name> - string which will be displayed and used for choosing.
 ---     - <section> - string representing to which section item belongs.
 ---   There are pre-configured whole sections in |MiniStarter.sections|.
+---
 --- - Configure what items are displayed by supplying an array which can be
 ---   normalized to an array of items. Read about how supplied items are
 ---   normalized in |MiniStarter.refresh|.
+---
 --- - Modify the final look by supplying content hooks: functions which take
 ---   buffer content (see |MiniStarter.get_content()|) and identifier as input
 ---   while returning buffer content as output. There are pre-configured
 ---   content hook generators in |MiniStarter.gen_hook|.
+---
 --- - Choosing an item can be done in two ways:
 ---     - Type prefix query to filter item by matching its name (ignoring
 ---       case). Displayed information is updated after every typed character.
 ---       For every item its unique prefix is highlighted.
 ---     - Use Up/Down arrows and hit Enter.
+---
 --- - Allow multiple simultaneously open Starter buffers.
 ---
 --- What is doesn't do:
@@ -47,6 +55,8 @@
 --- Note: `vim.b.ministarter_config` is copied to Starter buffer from current
 --- buffer allowing full customization.
 ---
+--- To stop module from showing non-error feedback, set `config.silent = true`.
+---
 --- # Highlight groups~
 ---
 --- * `MiniStarterCurrent` - current item.
@@ -63,13 +73,11 @@
 ---
 --- # Disabling~
 ---
---- To disable core functionality, set `g:ministarter_disable` (globally) or
---- `b:ministarter_disable` (for a buffer) to `v:true`. Considering high number
+--- To disable core functionality, set `vim.g.ministarter_disable` (globally) or
+--- `vim.b.ministarter_disable` (for a buffer) to `true`. Considering high number
 --- of different scenarios and customization intentions, writing exact rules
 --- for disabling module's functionality is left to user. See
 --- |mini.nvim-disabling-recipes| for common recipes.
----@tag mini.starter
----@tag MiniStarter
 
 --- Example configurations
 ---
@@ -180,7 +188,7 @@
 
 ---@alias __starter_buf_id number|nil Buffer identifier of a valid Starter buffer.
 ---   Default: current buffer.
----@alias __section_fun function Function which returns array of items.
+---@alias __starter_section_fun function Function which returns array of items.
 
 -- Module definition ==========================================================
 local MiniStarter = {}
@@ -188,10 +196,19 @@ local H = {}
 
 --- Module setup
 ---
----@param config table Module config table. See |MiniStarter.config|.
+---@param config table|nil Module config table. See |MiniStarter.config|.
 ---
 ---@usage `require('mini.starter').setup({})` (replace `{}` with your `config` table)
 MiniStarter.setup = function(config)
+  -- TODO: Remove after Neovim<=0.6 support is dropped
+  if vim.fn.has('nvim-0.7') == 0 then
+    vim.notify(
+      '(mini.starter) Neovim<0.7 is soft deprecated (module works but not supported).'
+        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
+        .. ' Please update your Neovim version.'
+    )
+  end
+
   -- Export module
   _G.MiniStarter = MiniStarter
 
@@ -263,6 +280,9 @@ MiniStarter.config = {
   -- mapping overriding your global ones. Be careful to not add `:` as it
   -- allows you to go into command mode.
   query_updaters = 'abcdefghijklmnopqrstuvwxyz0123456789_-.',
+
+  -- Whether to disable showing non-error feedback
+  silent = false,
 }
 --minidoc_afterlines_end
 
@@ -294,7 +314,7 @@ end
 --- |autocmd-nested|. Example:
 --- `autocmd TabNewEntered * ++nested lua MiniStarter.open()`
 ---
----@param buf_id number Identifier of existing valid buffer (see |bufnr()|) to
+---@param buf_id number|nil Identifier of existing valid buffer (see |bufnr()|) to
 ---   open inside. Default: create a new one.
 MiniStarter.open = function(buf_id)
   if H.is_disabled() then return end
@@ -444,14 +464,14 @@ end
 ---   stored (see |MiniSessions.setup|).
 --- - Local session (if detected) is always displayed first.
 ---
----@param n number Number of returned items. Default: 5.
----@param recent boolean Whether to use recent sessions (instead of
+---@param n number|nil Number of returned items. Default: 5.
+---@param recent boolean|nil Whether to use recent sessions (instead of
 ---   alphabetically by name). Default: true.
 ---
----@return __section_fun
+---@return __starter_section_fun
 MiniStarter.sections.sessions = function(n, recent)
   n = n or 5
-  recent = recent == nil and true or recent
+  if recent == nil then recent = true end
 
   return function()
     if _G.MiniSessions == nil then
@@ -500,19 +520,17 @@ end
 ---
 --- Files are taken from |vim.v.oldfiles|.
 ---
----@param n number Number of returned items. Default: 5.
----@param current_dir boolean Whether to return files only from current working
----   directory. Default: `false`.
----@param show_path boolean Whether to append file name with its full path.
+---@param n number|nil Number of returned items. Default: 5.
+---@param current_dir boolean|nil Whether to return files only from current working
+---   directory and its subdirectories. Default: `false`.
+---@param show_path boolean|nil Whether to append file name with its full path.
 ---   Default: `true`.
 ---
----@return __section_fun
+---@return __starter_section_fun
 MiniStarter.sections.recent_files = function(n, current_dir, show_path)
   n = n or 5
-  current_dir = current_dir == nil and false or current_dir
-  show_path = show_path == nil and true or show_path
-
-  if current_dir then vim.cmd('au DirChanged * lua MiniStarter.refresh()') end
+  if current_dir == nil then current_dir = false end
+  if show_path == nil then show_path = true end
 
   return function()
     local section = ('Recent files%s'):format(current_dir and ' (current directory)' or '')
@@ -526,9 +544,9 @@ MiniStarter.sections.recent_files = function(n, current_dir, show_path)
 
     -- Possibly filter files from current directory
     if current_dir then
-      local cwd = vim.loop.cwd()
-      local n_cwd = cwd:len()
-      files = vim.tbl_filter(function(f) return f:sub(1, n_cwd) == cwd end, files)
+      local cwd_pattern = '^' .. vim.pesc(vim.fn.getcwd()) .. '%/'
+      -- Use only files from current directory and its subdirectories
+      files = vim.tbl_filter(function(f) return vim.fn.fnamemodify(f, ':p'):find(cwd_pattern) ~= nil end, files)
     end
 
     if #files == 0 then
@@ -551,7 +569,7 @@ end
 -- stylua: ignore start
 --- Section with basic Telescope pickers relevant to start screen
 ---
----@return __section_fun
+---@return __starter_section_fun
 MiniStarter.sections.telescope = function()
   return function()
     return {
@@ -578,9 +596,9 @@ MiniStarter.gen_hook = {}
 --- Output is a content hook which adds constant padding from left and top.
 --- This allows tweaking the screen position of buffer content.
 ---
----@param left number Number of empty spaces to add to start of each content
+---@param left number|nil Number of empty spaces to add to start of each content
 ---   line. Default: 0.
----@param top number Number of empty lines to add to start of content.
+---@param top number|nil Number of empty lines to add to start of content.
 ---   Default: 0.
 ---
 ---@return function Content hook.
@@ -611,15 +629,15 @@ end
 --- Output is a content hook which adds supplied string to be displayed to the
 --- left of item.
 ---
----@param bullet string String to be placed to the left of item name.
+---@param bullet string|nil String to be placed to the left of item name.
 ---   Default: "░ ".
----@param place_cursor boolean Whether to place cursor on the first character
+---@param place_cursor boolean|nil Whether to place cursor on the first character
 ---   of bullet when corresponding item becomes current. Default: true.
 ---
 ---@return function Content hook.
 MiniStarter.gen_hook.adding_bullet = function(bullet, place_cursor)
   bullet = bullet or '░ '
-  place_cursor = place_cursor == nil and true or place_cursor
+  if place_cursor == nil then place_cursor = true end
   return function(content)
     local coords = MiniStarter.content_coords(content, 'item')
     -- Go backwards to avoid conflict when inserting units
@@ -646,9 +664,9 @@ end
 --- name. It results into shortening queries required to choose an item (at
 --- expense of clarity).
 ---
----@param grouping string One of "all" (number indexing across all sections) or
+---@param grouping string|nil One of "all" (number indexing across all sections) or
 ---   "section" (letter-number indexing within each section). Default: "all".
----@param exclude_sections table Array of section names (values of `section`
+---@param exclude_sections table|nil Array of section names (values of `section`
 ---   element of item) for which index won't be added. Default: `{}`.
 ---
 ---@return function Content hook.
@@ -692,13 +710,13 @@ end
 --- Basically, this computes left and top pads for |MiniStarter.gen_hook.padding|
 --- such that output lines would appear aligned in certain way.
 ---
----@param horizontal string One of "left", "center", "right". Default: "left".
----@param vertical string One of "top", "center", "bottom". Default: "top".
+---@param horizontal string|nil One of "left", "center", "right". Default: "left".
+---@param vertical string|nil One of "top", "center", "bottom". Default: "top".
 ---
 ---@return function Content hook.
 MiniStarter.gen_hook.aligning = function(horizontal, vertical)
-  horizontal = horizontal == nil and 'left' or horizontal
-  vertical = vertical == nil and 'top' or vertical
+  horizontal = horizontal or 'left'
+  vertical = vertical or 'top'
 
   local horiz_coef = ({ left = 0, center = 0.5, right = 1.0 })[horizontal]
   local vert_coef = ({ top = 0, center = 0.5, bottom = 1.0 })[vertical]
@@ -759,7 +777,7 @@ end
 --- to bottom, left to right) and returns "coordinates" of units for which
 --- `predicate` is true-ish.
 ---
----@param content table Content "2d array". Default: content of current buffer.
+---@param content table|nil Content "2d array". Default: content of current buffer.
 ---@param predicate function|string|nil Predictate to filter units. If it is:
 ---    - Function, then it is evaluated with unit as input.
 ---    - String, then it checks unit to have this type (allows easy getting of
@@ -792,7 +810,7 @@ end
 --- One buffer line is made by concatenating `string` element of units within
 --- same content line.
 ---
----@param content table Content "2d array". Default: content of current buffer.
+---@param content table|nil Content "2d array". Default: content of current buffer.
 ---
 ---@return table Array of strings for each buffer line.
 MiniStarter.content_to_lines = function(content)
@@ -819,7 +837,7 @@ end
 ---   element of content unit. This allows modifying item's `name` at the stage
 ---   of content hooks (like, for example, in |MiniStarter.gen_hook.indexing|).
 ---
----@param content table Content "2d array". Default: content of current buffer.
+---@param content table|nil Content "2d array". Default: content of current buffer.
 ---
 ---@return table Array of items.
 MiniStarter.content_to_items = function(content)
@@ -919,7 +937,7 @@ end
 --- - Update highlighting: whole strings for "inactive" items, current query
 ---   for "active" items.
 ---
----@param char string Single character to be added to query. If `nil`, deletes
+---@param char string|nil Single character to be added to query. If `nil`, deletes
 ---   latest character from query.
 ---@param buf_id __starter_buf_id
 MiniStarter.add_to_query = function(char, buf_id)
@@ -1028,6 +1046,7 @@ H.setup_config = function(config)
     -- `header` and `footer` can have any type
     content_hooks = { config.content_hooks, 'table', true },
     query_updaters = { config.query_updaters, 'string' },
+    silent = { config.silent, 'boolean' },
   })
 
   return config
@@ -1253,7 +1272,7 @@ H.make_query = function(buf_id, query, echo_msg)
 
   -- Notify about new query if not in VimEnter, where it might lead to
   -- unpleasant flickering due to startup process (lazy loading, etc.).
-  if echo_msg and not H.is_in_vimenter then
+  if echo_msg and not H.is_in_vimenter and vim.o.cmdheight > 0 then
     -- Make sure that output of `echo` will be shown
     vim.cmd('redraw')
 
@@ -1269,7 +1288,7 @@ H.make_buffer_autocmd = function(buf_id)
         au!
         au VimResized <buffer=%s> lua MiniStarter.refresh()
         au CursorMoved <buffer=%s> lua MiniStarter.on_cursormoved()
-        au BufLeave <buffer=%s> echo ''
+        au BufLeave <buffer=%s> if &cmdheight > 0 | echo '' | endif
         au BufLeave <buffer=%s> if &showtabline==1 | set showtabline=%s | endif
       augroup END]],
     buf_id, buf_id, buf_id, buf_id, vim.o.showtabline
@@ -1316,6 +1335,7 @@ H.apply_buffer_options = function(buf_id)
     'nomodeline',
     'nomodifiable',
     'foldlevel=999',
+    'nowrap',
   }
   -- Vim's `setlocal` is currently more robust comparing to `opt_local`
   vim.cmd(('silent! noautocmd setlocal %s'):format(table.concat(options, ' ')))
@@ -1410,6 +1430,8 @@ end
 
 -- Utilities ------------------------------------------------------------------
 H.echo = function(msg, is_important)
+  if H.get_config().silent then return end
+
   -- Construct message chunks
   msg = type(msg) == 'string' and { { msg } } or msg
   table.insert(msg, 1, { '(mini.starter) ', 'WarningMsg' })

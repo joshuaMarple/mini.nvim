@@ -1,11 +1,13 @@
+*mini.align* Align text interactively
+*MiniAlign*
+
+MIT License Copyright (c) 2022 Evgeni Chasnovski
+
 ==============================================================================
-------------------------------------------------------------------------------
-                                                                    *mini.align*
-                                                                     *MiniAlign*
-Align text interactively (with or without instant preview). Allows rich and
-flexible customization of both alignment rules and user interaction. Works
-with charwise, linewise, and blockwise selections in both Normal mode (on
-textobject/motion; with dot-repeat) and Visual mode.
+
+Rich and flexible customization of both alignment rules and user interaction.
+Works with charwise, linewise, and blockwise selections in both Normal mode
+(on textobject/motion; with dot-repeat) and Visual mode.
 
 Features:
 - Alignment is done in three main steps:
@@ -15,6 +17,7 @@ Features:
   Each main step can be preceded by other steps (pre-steps) to achieve
   highly customizable outcome. See `steps` value in |MiniAlign.config|. For
   more details, see |MiniAlign-glossary| and |MiniAlign-algorithm|.
+
 - User can control alignment interactively by pressing customizable modifiers
   (single keys representing how alignment steps and/or options should change).
   Some of default modifiers:
@@ -29,9 +32,11 @@ Features:
     - Press `t` to trim whitespace from parts.
     - Press `<BS>` (backspace) to delete some last pre-step.
   For more details, see |MiniAlign-modifiers-builtin| and |MiniAlign-examples|.
+
 - Alignment can be done with instant preview (result is updated after each
   modifier) or without it (result is shown and accepted after non-default
   split pattern is set).
+
 - Every user interaction is accompanied with helper status message showing
   relevant information about current alignment process.
 
@@ -46,6 +51,8 @@ See |MiniAlign.config| for available config settings.
 You can override runtime config settings (like `config.modifiers`) locally
 to buffer inside `vim.b.minialign_config` which should have same structure
 as `MiniAlign.config`. See |mini.nvim-buffer-local-config| for more details.
+
+To stop module from showing non-error feedback, set `config.silent = true`.
 
 # Comparisons~
 
@@ -81,8 +88,8 @@ as `MiniAlign.config`. See |mini.nvim-buffer-local-config| for more details.
 
 # Disabling~
 
-To disable, set `g:minialign_disable` (globally) or `b:minialign_disable`
-(for a buffer) to `v:true`. Considering high number of different scenarios
+To disable, set `vim.g.minialign_disable` (globally) or `vim.b.minialign_disable`
+(for a buffer) to `true`. Considering high number of different scenarios
 and customization intentions, writing exact rules for disabling module's
 functionality is left to user. See |mini.nvim-disabling-recipes| for common
 recipes.
@@ -463,6 +470,9 @@ Default values:
       pre_merge = {},
       merge = nil,
     },
+
+    -- Whether to disable showing non-error feedback
+    silent = false,
   }
 <
 # Options ~
@@ -851,7 +861,7 @@ Parameters~
 {expr} `(string)` Lua expression as a string which will be used as predicate.
 
 Return~
-`(table)` A step named "filter" and with appropriate callable action.
+`(table|nil)` A step named "filter" and with appropriate callable action.
 
 ------------------------------------------------------------------------------
                                              *MiniAlign.gen_step.ignore_split()*
@@ -865,7 +875,7 @@ Parameters~
 {patterns} `(table)` Array of patterns to be added to
   `split_exclude_patterns` as is. Default: `{ [[".-"]] }` (excludes strings
   for most cases).
-{exclude_comment} `(boolean)` Whether to add comment pattern to
+{exclude_comment} `(boolean|nil)` Whether to add comment pattern to
   `split_exclude_patterns`. Comment pattern is derived from 'commentstring'
   option. Default: `true`.
 
@@ -900,9 +910,9 @@ Output calls `trim()` method of parts (see |MiniAlign.as_parts()|) with
 supplied `direction` and `indent` arguments.
 
 Parameters~
-{direction} `(string)` Which sides to trim whitespace. One of "both"
+{direction} `(string|nil)` Which sides to trim whitespace. One of "both"
   (default), "left", "right", "none".
-{indent} `(string)` What to do with possible indent (left whitespace of first
+{indent} `(string|nil)` What to do with possible indent (left whitespace of first
   string in a row). One of "keep" (default), "low", "high", "remove".
 
 Return~

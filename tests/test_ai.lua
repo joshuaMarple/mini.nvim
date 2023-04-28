@@ -89,6 +89,7 @@ T['setup()']['creates `config` field'] = function()
   expect_config('mappings.goto_right', 'g]')
   expect_config('n_lines', 50)
   expect_config('search_method', 'cover_or_next')
+  expect_config('silent', false)
 end
 
 T['setup()']['respects `config` argument'] = function()
@@ -117,6 +118,7 @@ T['setup()']['validates `config` argument'] = function()
   expect_config_error({ mappings = { goto_right = 1 } }, 'mappings.goto_right', 'string')
   expect_config_error({ n_lines = 'a' }, 'n_lines', 'number')
   expect_config_error({ search_method = 1 }, 'search_method', 'one of')
+  expect_config_error({ silent = 1 }, 'silent', 'boolean')
 end
 
 T['setup()']['properly handles `config.mappings`'] = function()
@@ -442,6 +444,13 @@ T['find_textobject()']['shows message if no region is found'] = function()
   )
 end
 
+T['find_textobject()']['respects `config.silent`'] = function()
+  child.lua('MiniAi.config.silent = true')
+
+  validate_find1d('aa', 0, { 'a', ')' }, nil)
+  eq(get_latest_message(), '')
+end
+
 T['find_textobject()']['respects `vim.b.miniai_config`'] = function()
   child.b.miniai_config = { search_method = 'cover' }
   validate_find1d('aa(bb)', 0, { 'a', ')' }, nil)
@@ -558,10 +567,12 @@ T['gen_spec']['argument()']['respects `opts.brackets`'] = function()
   validate_find1d('{aa, bb}', 0, { 'a', 'A' }, nil)
 end
 
-T['gen_spec']['argument()']['respects `opts.separators`'] = function()
+T['gen_spec']['argument()']['respects `opts.separator`'] = function()
   child.lua([[MiniAi.config.custom_textobjects = {
-    A = MiniAi.gen_spec.argument({ separators = { ';' } }),
-    B = MiniAi.gen_spec.argument({ separators = { ',', ';' } }),
+    A = MiniAi.gen_spec.argument({ separator = ';' }),
+    B = MiniAi.gen_spec.argument({ separator = '[,;]' }),
+    C = MiniAi.gen_spec.argument({ separator = '%s*,%s*' }),
+    D = MiniAi.gen_spec.argument({ separator = ', ,' }),
   }]])
 
   validate_find1d('(aa, bb; cc, dd)', 0, { 'a', 'A', { n_times = 1 } }, { 2, 8 })
@@ -571,6 +582,20 @@ T['gen_spec']['argument()']['respects `opts.separators`'] = function()
   validate_find1d('(aa, bb; cc, dd)', 0, { 'a', 'B', { n_times = 2 } }, { 4, 7 })
   validate_find1d('(aa, bb; cc, dd)', 0, { 'a', 'B', { n_times = 3 } }, { 8, 11 })
   validate_find1d('(aa, bb; cc, dd)', 0, { 'a', 'B', { n_times = 4 } }, { 12, 15 })
+
+  validate_find1d('(aa , bb , cc)', 0, { 'a', 'C', { n_times = 1 } }, { 2, 6 })
+  validate_find1d('(aa , bb , cc)', 0, { 'a', 'C', { n_times = 2 } }, { 4, 8 })
+  validate_find1d('(aa , bb , cc)', 0, { 'a', 'C', { n_times = 3 } }, { 9, 13 })
+
+  validate_find1d('(aa , bb , cc)', 0, { 'i', 'C', { n_times = 1 } }, { 2, 3 })
+  validate_find1d('(aa , bb , cc)', 0, { 'i', 'C', { n_times = 2 } }, { 7, 8 })
+  validate_find1d('(aa , bb , cc)', 0, { 'i', 'C', { n_times = 3 } }, { 12, 13 })
+
+  validate_find1d('(aa, bb , , cc, dd)', 0, { 'a', 'D', { n_times = 1 } }, { 2, 11 })
+  validate_find1d('(aa, bb , , cc, dd)', 0, { 'a', 'D', { n_times = 2 } }, { 9, 18 })
+
+  validate_find1d('(aa, bb , , cc, dd)', 0, { 'i', 'D', { n_times = 1 } }, { 2, 7 })
+  validate_find1d('(aa, bb , , cc, dd)', 0, { 'i', 'D', { n_times = 2 } }, { 13, 18 })
 end
 
 T['gen_spec']['argument()']['respects `opts.exclude_regions`'] = function()
@@ -1578,6 +1603,34 @@ T['Textobject']['works with empty output region'] = function()
   validate(1)
 end
 
+T['Textobject']['works in command-line window'] = function()
+  child.set_size(20, 40)
+
+  local validate = function(before_line, after_line, keys)
+    -- Open command-line window
+    type_keys('q:')
+    eq(child.fn.getcmdwintype(), ':')
+
+    type_keys('i', before_line, '<Esc>')
+    type_keys(keys)
+    eq(child.fn.getline('.'), after_line)
+
+    -- It shouldn't close command-line window
+    eq(child.fn.getcmdwintype(), ':')
+    type_keys('<Esc>')
+    child.cmd('close')
+  end
+
+  validate('(aaa)', '(...)', 'vi)r.')
+  validate('(aaa)', '.....', 'va)r.')
+
+  validate('(aaa)', '()', 'di)')
+  validate('(aaa)', '', 'da)')
+
+  validate('fun(aaa)', 'fun()', 'cif')
+  validate('fun(aaa)', '', 'caf')
+end
+
 T['Textobject']['ensures that output is not covered by reference'] = function()
   -- Non-empty region
   set_lines({ 'aa(bb)cc(dd)' })
@@ -1661,6 +1714,26 @@ T['Textobject']['respects `vim.{g,b}.miniai_disable`'] = new_set({
     validate_edit1d('*bb*', 1, '*bb*', 1, 'ci*')
   end,
 })
+
+T['Textobject']['respects `config.silent`'] = function()
+  child.set_size(5, 40)
+  child.lua('MiniAi.config.silent = true')
+
+  child.o.timeoutlen = 50
+  local total_wait_time = 1000 + child.o.timeoutlen
+
+  set_lines({ '(aaa)' })
+  set_cursor(1, 1)
+
+  type_keys('v', 'a')
+  sleep(total_wait_time)
+
+  -- Should not show helper message
+  child.expect_screenshot()
+
+  -- Finish user input for cleaner Neovim restart
+  type_keys(')')
+end
 
 T['Textobject next/last'] = new_set()
 
@@ -2155,6 +2228,11 @@ T['Builtin']['Argument']['is ambiguous on first comma'] = function()
   -- of compromise over comma asymmetry.
   validate_tobj1d('f(x, yyyyyy)', 3, 'aa', { 3, 4 })
   validate_tobj1d('f(xxxxxx, y)', 8, 'aa', { 9, 11 })
+
+  -- It is also true if separator pattern includes whitespace
+  child.lua([[MiniAi.config.custom_textobjects = { A = MiniAi.gen_spec.argument({ separator = '%s*,%s*' }) }]])
+  validate_tobj1d('f(x , yyyyyy)', 5, 'aA', { 3, 6 })
+  validate_tobj1d('f(xxxxxx , y)', 8, 'aA', { 9, 12 })
 end
 
 T['Builtin']['Argument']['works inside all balanced brackets'] = function()
@@ -2194,7 +2272,7 @@ T['Builtin']['Argument']['ignores empty arguments'] = function()
   validate_tobj1d('f(, xx)', 0, '2ia', { 5, 6 })
 
   validate_tobj1d('f(,, xx)', 0, 'aa', { 3, 3 })
-  validate_tobj1d('f(,, xx)', 0, 'ia', { 4, 4 })
+  validate_tobj1d('f(,, xx)', 0, 'ia', { 3, 3 })
   validate_tobj1d('f(,, xx)', 0, '2aa', { 4, 7 })
   validate_tobj1d('f(,, xx)', 0, '2ia', { 6, 7 })
 
@@ -2278,12 +2356,41 @@ T['Builtin']['Argument']['handles first and last arguments'] = function()
     validate_tobj1d('f(  xx  ,  yy  )', i, 'ia', { 12, 13 })
   end
 
+  -- Edge whitespace should be recognized as part of current argument even in
+  -- presence of a bigger covering one
+  validate_tobj1d('g(f(  xx  ,  yy  ))', 4, 'aa', { 7, 11 })
+  validate_tobj1d('g(f(  xx  ,  yy  ))', 16, 'aa', { 11, 15 })
+
   -- Newline character should also be ignored
   local lines, cursor = { 'f(  ', '  aa,', '  bb', '  )' }, { 1, 0 }
   validate_tobj(lines, cursor, 'aa', { { 2, 3 }, { 2, 5 } })
   validate_tobj(lines, cursor, 'ia', { { 2, 3 }, { 2, 4 } })
   validate_tobj(lines, cursor, '2aa', { { 2, 5 }, { 3, 4 } })
   validate_tobj(lines, cursor, '2ia', { { 3, 3 }, { 3, 4 } })
+end
+
+--stylua: ignore
+T['Builtin']['Argument']['works with whitespace padding in separator pattern'] = function()
+  child.lua([[MiniAi.config.custom_textobjects = { A = MiniAi.gen_spec.argument({ separator = '%s*,%s*' }) }]])
+
+  -- Visual mode
+  for i = 2, 5 do
+    validate_tobj1d('f(  xx  ,  yy  ,  zz  )', i, 'aA', { 5, 11 })
+    validate_tobj1d('f(  xx  ,  yy  ,  zz  )', i, 'iA', { 5, 6 })
+  end
+  for i = 11, 12 do
+    validate_tobj1d('f(  xx  ,  yy  ,  zz  )', i, 'aA', { 7, 13 })
+    validate_tobj1d('f(  xx  ,  yy  ,  zz  )', i, 'iA', { 12, 13 })
+  end
+  for i = 18, 21 do
+    validate_tobj1d('f(  xx  ,  yy  ,  zz  )', i, 'aA', { 14, 20 })
+    validate_tobj1d('f(  xx  ,  yy  ,  zz  )', i, 'iA', { 19, 20 })
+  end
+
+  -- Operator-pending mode
+  validate_edit1d('f( xx  ,   yy    ,     zz )', 3,  'f( yy    ,     zz )', 3, 'daA')
+  validate_edit1d('f( xx  ,   yy    ,     zz )', 11, 'f( xx    ,     zz )', 5, 'daA')
+  validate_edit1d('f( xx  ,   yy    ,     zz )', 23, 'f( xx  ,   yy )',    13, 'daA')
 end
 
 T['Builtin']['Argument']['works in Operator-pending mode'] = function()

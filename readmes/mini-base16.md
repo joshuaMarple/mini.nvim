@@ -44,6 +44,8 @@ Supported highlight groups:
     - [akinsho/bufferline.nvim](https://github.com/akinsho/bufferline.nvim)
     - [anuvyklack/hydra.nvim](https://github.com/anuvyklack/hydra.nvim)
     - [DanilaMihailov/beacon.nvim](https://github.com/DanilaMihailov/beacon.nvim)
+    - [folke/lazy.nvim](https://github.com/folke/lazy.nvim)
+    - [folke/noice.nvim](https://github.com/folke/noice.nvim)
     - [folke/todo-comments.nvim](https://github.com/folke/todo-comments.nvim)
     - [folke/trouble.nvim](https://github.com/folke/trouble.nvim)
     - [folke/which-key.nvim](https://github.com/folke/which-key.nvim)
@@ -51,16 +53,17 @@ Supported highlight groups:
     - [ggandor/lightspeed.nvim](https://github.com/ggandor/lightspeed.nvim)
     - [glepnir/dashboard-nvim](https://github.com/glepnir/dashboard-nvim)
     - [glepnir/lspsaga.nvim](https://github.com/glepnir/lspsaga.nvim)
+    - [HiPhish/nvim-ts-rainbow2](https://github.com/HiPhish/nvim-ts-rainbow2)
     - [hrsh7th/nvim-cmp](https://github.com/hrsh7th/nvim-cmp)
     - [justinmk/vim-sneak](https://github.com/justinmk/vim-sneak)
-    - [nvim-tree/nvim-tree.lua](https://github.com/nvim-tree/nvim-tree.lua)
+    - [kevinhwang91/nvim-ufo](https://github.com/kevinhwang91/nvim-ufo)
     - [lewis6991/gitsigns.nvim](https://github.com/lewis6991/gitsigns.nvim)
     - [lukas-reineke/indent-blankline.nvim](https://github.com/lukas-reineke/indent-blankline.nvim)
     - [neoclide/coc.nvim](https://github.com/neoclide/coc.nvim)
     - [nvim-lualine/lualine.nvim](https://github.com/nvim-lualine/lualine.nvim)
     - [nvim-neo-tree/neo-tree.nvim](https://github.com/nvim-neo-tree/neo-tree.nvim)
     - [nvim-telescope/telescope.nvim](https://github.com/nvim-telescope/telescope.nvim)
-    - [p00f/nvim-ts-rainbow](https://github.com/p00f/nvim-ts-rainbow)
+    - [nvim-tree/nvim-tree.lua](https://github.com/nvim-tree/nvim-tree.lua)
     - [phaazon/hop.nvim](https://github.com/phaazon/hop.nvim)
     - [rcarriga/nvim-dap-ui](https://github.com/rcarriga/nvim-dap-ui)
     - [rcarriga/nvim-notify](https://github.com/rcarriga/nvim-notify)
@@ -175,7 +178,6 @@ Here are code snippets for some common installation methods (use only one):
 ## Default config
 
 ```lua
--- No need to copy this inside `setup()`. Will be used automatically.
 {
   -- Table with names from `base00` to `base0F` and values being strings of
   -- HEX colors with format "#RRGGBB". NOTE: this should be explicitly

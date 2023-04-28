@@ -1,16 +1,21 @@
+*mini.jump2d* Jump within visible lines
+*MiniJump2d*
+
+MIT License Copyright (c) 2022 Evgeni Chasnovski
+
 ==============================================================================
-------------------------------------------------------------------------------
-                                                                   *mini.jump2d*
-                                                                    *MiniJump2d*
+
 Jump within visible lines via iterative label filtering.
 
 Features:
 - Make jump by iterative filtering of possible, equally considered jump
   spots until there is only one. Filtering is done by typing a label
   character that is visualized at jump spot.
-- Customizable:
+
+- Customizable (see |MiniJump2d.config|):
     - Way of computing possible jump spots with opinionated default.
     - Characters used to label jump spots during iterative filtering.
+    - Visual effects: how many steps ahead to show; dim lines with spots.
     - Action hooks to be executed at certain events during jump.
     - Allowed windows: current and/or not current.
     - Allowed lines: whether to process blank or folded lines, lines
@@ -19,20 +24,26 @@ Features:
     Example: user can configure to look for word starts only inside current
     window at or after cursor line with 'j' and 'k' labels performing some
     action after jump.
+
 - Works in Visual and Operator-pending (with dot-repeat) modes.
+
 - Preconfigured ways of computing jump spots (see |MiniJump2d.builtin_opts|).
+
 - Works with multibyte characters.
 
 General overview of how jump is intended to be performed:
 - Lock eyes on desired location ("spot") recognizable by future jump.
   Should be within visible lines at place where cursor can be placed.
+
 - Initiate jump. Either by custom keybinding or with a call to
   |MiniJump2d.start()| (allows customization options). This will highlight
   all possible jump spots with their labels (letters from "a" to "z" by
   default). For more details, read |MiniJump2d.start()| and |MiniJump2d.config|.
+
 - Type character that appeared over desired location. If its label was
   unique, jump is performed. If it wasn't unique, possible jump spots are
   filtered to those having the same label character.
+
 - Repeat previous step until there is only one possible jump spot or type `<CR>`
   to jump to first available jump spot. Typing anything else stops jumping
    without moving cursor.
@@ -49,6 +60,8 @@ See |MiniJump2d.config| for available config settings.
 You can override runtime config settings locally to buffer inside
 `vim.b.minijump2d_config` which should have same structure as
 `MiniJump2d.config`. See |mini.nvim-buffer-local-config| for more details.
+
+To stop module from showing non-error feedback, set `config.silent = true`.
 
 # Example usage~
 
@@ -69,6 +82,8 @@ You can override runtime config settings locally to buffer inside
 - 'phaazon/hop.nvim':
     - Both are fast, customizable, and extensible (user can write their own
       ways to define jump spots).
+    - 'hop.nvim' visualizes all steps at once. While this module can show
+      configurable number of steps ahead.
     - Both have several builtin ways to specify type of jump (word start,
       line start, one character or query based on user input). 'hop.nvim'
       does that by exporting many targeted Neovim commands, while this
@@ -81,33 +96,40 @@ You can override runtime config settings locally to buffer inside
       shorter than the others (leading to fewer average keystrokes). They
       are put near cursor (by default) and highlighted differently. Final
       order of sequences is based on distance to the cursor.
-    - 'hop.nvim' visualizes labels differently. It is designed to show
-      whole sequences at once, while this module intentionally shows only
-      current one at a time.
     - 'mini.jump2d' has opinionated default algorithm of computing jump
       spots. See |MiniJump2d.default_spotter|.
 
 # Highlight groups~
 
-* `MiniJump2dSpot` - highlighting of jump spots. By default it uses label
-  with highest contrast while not being too visually demanding: white on
-  black for dark 'background', black on white for light. If it doesn't
-  suit your liking, try couple of these alternatives (or choose your own,
-  of course):
+* `MiniJump2dSpot` - highlighting of jump spot's next step. By default it
+  uses label with highest contrast while not being too visually demanding:
+  white on black for dark 'background', black on white for light. If it
+  doesn't suit your liking, try couple of these alternatives (or choose
+  your own, of course):
     - `hi MiniJump2dSpot gui=reverse` - reverse underlying highlighting (more
       colorful while being visible in any colorscheme).
     - `hi MiniJump2dSpot gui=bold,italic` - bold italic.
     - `hi MiniJump2dSpot gui=undercurl guisp=red` - red undercurl.
 
+* `MiniJump2dSpotUnique` - highlighting of jump spot's next step if it has
+  unique label. By default links to `MiniJump2dSpot`.
+
+* `MiniJump2dSpotAhead` - highlighting of jump spot's future steps. By default
+  similar to `MiniJump2dSpot` but with less contrast and visibility.
+
+* `MiniJump2dDim` - highlighting of lines with at least one jump spot.
+  Make it non-bright in order for jump spot labels to be more visible.
+  By default linked to `Comment` highlight group.
+
 To change any highlight group, modify it directly with |:highlight|.
 
 # Disabling~
 
-To disable, set `g:minijump2d_disable` (globally) or `b:minijump2d_disable`
-(for a buffer) to `v:true`. Considering high number of different scenarios
-and customization intentions, writing exact rules for disabling module's
-functionality is left to user. See |mini.nvim-disabling-recipes| for common
-recipes.
+To disable, set `vim.g.minijump2d_disable` (globally) or
+`vim.b.minijump2d_disable` (for a buffer) to `true`. Considering high
+number of different scenarios and customization intentions, writing exact
+rules for disabling module's functionality is left to user. See
+|mini.nvim-disabling-recipes| for common recipes.
 
 ------------------------------------------------------------------------------
                                                             *MiniJump2d.setup()*
@@ -115,7 +137,7 @@ recipes.
 Module setup
 
 Parameters~
-{config} `(table)` Module config table. See |MiniJump2d.config|.
+{config} `(table|nil)` Module config table. See |MiniJump2d.config|.
 
 Usage~
 `require('mini.jump2d').setup({})` (replace `{}` with your `config` table)
@@ -135,6 +157,15 @@ Default values:
 
     -- Characters used for labels of jump spots (in supplied order)
     labels = 'abcdefghijklmnopqrstuvwxyz',
+
+    -- Options for visual effects
+    view = {
+      -- Whether to dim lines with at least one jump spot
+      dim = false,
+
+      -- How many steps ahead to show. Set to big number to show all steps.
+      n_steps_ahead = 0,
+    },
 
     -- Which lines are used for computing spots
     allowed_lines = {
@@ -161,6 +192,9 @@ Default values:
     mappings = {
       start_jumping = '<CR>',
     },
+
+    -- Whether to disable showing non-error feedback
+    silent = false,
   }
 <
 # Options~
@@ -183,6 +217,18 @@ strictly necessary) sorted increasingly.
 Note: spotter function is always called with `win_id` window being
 "temporary current" (see |nvim_win_call|). This allows using builtin
 Vimscript functions that operate only inside current window.
+
+## View ~
+
+Option `view.n_steps_ahead` controls how many steps ahead to show along
+with the currently required label. Those future steps are showed with
+different (less visible) highlight group ("MiniJump2dSpotAhead"). Usually
+it is a good idea to use this with a spotter which doesn't result into many
+jump spots (like, for example, |MiniJump2d.builtin_opts.word_start|).
+Default is 0 to not show anything ahead as it reduces visual noise.
+
+Option `view.dim` contols whether to dim lines with at least one jump spot.
+Dimming is done by applying "MiniJump2dDim" highlight group to the whol line.
 
 ## Allowed lines~
 
@@ -255,10 +301,15 @@ With default 26 labels for most real-world cases 2 steps is enough for
 default spotter function. Rarely 3 steps are needed with several windows.
 
 Parameters~
-{opts} `(table)` Configuration of jumping, overriding global and buffer
+{opts} `(table|nil)` Configuration of jumping, overriding global and buffer
   local values.config|. Has the same structure as |MiniJump2d.config|
   without <mappings> field. Extra allowed fields:
-    - <hl_group> - which highlight group to use (default: "MiniJump2dSpot").
+    - <hl_group> - which highlight group to use for first step.
+      Default: "MiniJump2dSpot".
+    - <hl_group_ahead> - which highlight group to use for second step and later.
+      Default: "MiniJump2dSpotAhead".
+    - <hl_group_dim> - which highlight group to use dimming used lines.
+      Default: "MiniJump2dSpotDim".
 
 Usage~
 - Start default jumping:

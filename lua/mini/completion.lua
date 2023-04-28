@@ -1,10 +1,15 @@
--- MIT License Copyright (c) 2021 Evgeni Chasnovski
-
--- Documentation ==============================================================
---- Autocompletion and signature help plugin. Key design ideas:
+--- *mini.completion* Completion and signature help
+--- *MiniCompletion*
+---
+--- MIT License Copyright (c) 2021 Evgeni Chasnovski
+---
+--- ==============================================================================
+---
+--- Key design ideas:
 --- - Have an async (with customizable "debounce" delay) "two-stage chain
 ---   completion": first try to get completion items from LSP client (if set
 ---   up) and if no result, fallback to custom action.
+---
 --- - Managing completion is done as much with Neovim's built-in tools as
 ---   possible.
 ---
@@ -23,15 +28,18 @@
 ---     - If first stage is not set up or resulted into no candidates, fallback
 ---       action is executed. The most tested actions are Neovim's built-in
 ---       insert completion (see |ins-completion|).
+---
 --- - Automatic display in floating window of completion item info (via
 ---   'completionItem/resolve' request) and signature help (with highlighting
 ---   of active parameter if LSP server provides such information). After
 ---   opening, window for signature help is fixed and is closed when there is
 ---   nothing to show, text is different or
 ---   when leaving Insert mode.
+---
 --- - Automatic actions are done after some configurable amount of delay. This
 ---   reduces computational load and allows fast typing (completion and
 ---   signature help) and item selection (item info)
+---
 --- - User can force two-stage completion via
 ---   |MiniCompletion.complete_twostage()| (by default is mapped to
 ---   `<C-Space>`) or fallback completion via
@@ -127,13 +135,11 @@
 ---
 --- # Disabling~
 ---
---- To disable, set `g:minicompletion_disable` (globally) or
---- `b:minicompletion_disable` (for a buffer) to `v:true`. Considering high
+--- To disable, set `vim.g.minicompletion_disable` (globally) or
+--- `vim.b.minicompletion_disable` (for a buffer) to `true`. Considering high
 --- number of different scenarios and customization intentions, writing exact
 --- rules for disabling module's functionality is left to user. See
 --- |mini.nvim-disabling-recipes| for common recipes.
----@tag mini.completion
----@tag MiniCompletion
 
 -- Overall implementation design:
 -- - Completion:
@@ -181,10 +187,19 @@ local H = {}
 
 --- Module setup
 ---
----@param config table Module config table. See |MiniCompletion.config|.
+---@param config table|nil Module config table. See |MiniCompletion.config|.
 ---
 ---@usage `require('mini.completion').setup({})` (replace `{}` with your `config` table)
 MiniCompletion.setup = function(config)
+  -- TODO: Remove after Neovim<=0.6 support is dropped
+  if vim.fn.has('nvim-0.7') == 0 then
+    vim.notify(
+      '(mini.completion) Neovim<0.7 is soft deprecated (module works but not supported).'
+        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
+        .. ' Please update your Neovim version.'
+    )
+  end
+
   -- Export module
   _G.MiniCompletion = MiniCompletion
 
@@ -207,6 +222,7 @@ MiniCompletion.setup = function(config)
         au TextChangedP    * lua MiniCompletion.on_text_changed_p()
 
         au FileType TelescopePrompt let b:minicompletion_disable=v:true
+        au ColorScheme * hi default MiniCompletionActiveParameter cterm=underline gui=underline
       augroup END]],
     false
   )
@@ -222,7 +238,7 @@ MiniCompletion.setup = function(config)
   end
 
   -- Create highlighting
-  vim.api.nvim_exec('hi default MiniCompletionActiveParameter term=underline cterm=underline gui=underline', false)
+  vim.api.nvim_exec('hi default MiniCompletionActiveParameter cterm=underline gui=underline', false)
 end
 
 --- Module config
@@ -344,13 +360,16 @@ end
 
 --- Run two-stage completion
 ---
----@param fallback boolean Whether to use fallback completion.
----@param force boolean Whether to force update of completion popup.
+---@param fallback boolean|nil Whether to use fallback completion. Default: `true`.
+---@param force boolean|nil Whether to force update of completion popup.
+---   Default: `true`.
 MiniCompletion.complete_twostage = function(fallback, force)
   if H.is_disabled() then return end
+  if fallback == nil then fallback = true end
+  if force == nil then force = true end
 
   H.stop_completion()
-  H.completion.fallback, H.completion.force = fallback or true, force or true
+  H.completion.fallback, H.completion.force = fallback, force
   H.trigger_twostep()
 end
 
@@ -414,8 +433,8 @@ end
 --- Designed to be used with |autocmd|. No need to use it directly, everything
 --- is setup in |MiniCompletion.setup|.
 ---
----@param actions table Array containing any of 'completion', 'info', or
----   'signature' string.
+---@param actions table|nil Array containing any of 'completion', 'info', or
+---   'signature' string. Default: array containing all of them.
 MiniCompletion.stop = function(actions)
   actions = actions or { 'completion', 'info', 'signature' }
   for _, n in pairs(actions) do
@@ -650,16 +669,6 @@ H.setup_config = function(config)
     },
   })
 
-  -- TODO: Remove after 0.7.0 release.
-  -- Compatibility for renaming `config.window_dimensions` to `config.window`
-  if config.window_dimensions ~= nil then
-    vim.notify(
-      '(mini.completion) Field `config.window_dimensions` is renamed to `config.window`. '
-        .. 'It will work until next release.'
-    )
-    config.window = vim.tbl_deep_extend('force', config.window, config.window_dimensions)
-  end
-
   return config
 end
 
@@ -775,7 +784,7 @@ H.stop_actions = {
 }
 
 -- LSP ------------------------------------------------------------------------
----@param capability string|table|`nil` Server capability (possibly nested
+---@param capability string|table|nil Server capability (possibly nested
 ---   supplied via table) to check.
 ---
 ---@return boolean Whether at least one LSP client supports `capability`.

@@ -1,8 +1,13 @@
--- MIT License Copyright (c) 2021 Evgeni Chasnovski
-
--- Documentation ==============================================================
---- Buffer removing (unshow, delete, wipeout), which saves window layout
---- (opposite to builtin Neovim's commands).
+--- *mini.bufremove* Remove buffers
+--- *MiniBufremove*
+---
+--- MIT License Copyright (c) 2021 Evgeni Chasnovski
+---
+--- ==============================================================================
+---
+--- Features:
+--- - Unshow, delete, and wipeout buffer while saving window layout
+---   (opposite to builtin Neovim's commands).
 ---
 --- # Setup~
 ---
@@ -16,6 +21,8 @@
 --- This module doesn't have runtime options, so using `vim.b.minibufremove_config`
 --- will have no effect here.
 ---
+--- To stop module from showing non-error feedback, set `config.silent = true`.
+---
 --- # Notes~
 ---
 --- 1. Which buffer to show in window(s) after its current buffer is removed is
@@ -27,13 +34,17 @@
 ---
 --- # Disabling~
 ---
---- To disable core functionality, set `g:minibufremove_disable` (globally) or
---- `b:minibufremove_disable` (for a buffer) to `v:true`. Considering high
+--- To disable core functionality, set `vim.g.minibufremove_disable` (globally) or
+--- `vim.b.minibufremove_disable` (for a buffer) to `true`. Considering high
 --- number of different scenarios and customization intentions, writing exact
 --- rules for disabling module's functionality is left to user. See
 --- |mini.nvim-disabling-recipes| for common recipes.
----@tag mini.bufremove
----@tag MiniBufremove
+
+---@alias __bufremove_return boolean|nil Whether operation was successful. If `nil`, no operation was done.
+---@alias __bufremove_buf_id number|nil Buffer identifier (see |bufnr()|) to use.
+---   Default: 0 for current.
+---@alias __bufremove_force boolean|nil Whether to ignore unsaved changes (using `!` version of
+---   command). Default: `false`.
 
 -- Module definition ==========================================================
 local MiniBufremove = {}
@@ -41,10 +52,19 @@ local H = {}
 
 --- Module setup
 ---
----@param config table Module config table. See |MiniBufremove.config|.
+---@param config table|nil Module config table. See |MiniBufremove.config|.
 ---
 ---@usage `require('mini.bufremove').setup({})` (replace `{}` with your `config` table)
 MiniBufremove.setup = function(config)
+  -- TODO: Remove after Neovim<=0.6 support is dropped
+  if vim.fn.has('nvim-0.7') == 0 then
+    vim.notify(
+      '(mini.bufremove) Neovim<0.7 is soft deprecated (module works but not supported).'
+        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
+        .. ' Please update your Neovim version.'
+    )
+  end
+
   -- Export module
   _G.MiniBufremove = MiniBufremove
 
@@ -62,18 +82,19 @@ end
 MiniBufremove.config = {
   -- Whether to set Vim's settings for buffers (allow hidden buffers)
   set_vim_settings = true,
+
+  -- Whether to disable showing non-error feedback
+  silent = false,
 }
 --minidoc_afterlines_end
 
 -- Module functionality =======================================================
 --- Delete buffer `buf_id` with |:bdelete| after unshowing it
 ---
----@param buf_id number Buffer identifier (see |bufnr()|) to use. Default:
----   0 for current.
----@param force boolean Whether to ignore unsaved changes (using `!` version of
----   command). Default: `false`.
+---@param buf_id __bufremove_buf_id
+---@param force __bufremove_force
 ---
----@return boolean Whether operation was successful.
+---@return __bufremove_return
 MiniBufremove.delete = function(buf_id, force)
   if H.is_disabled() then return end
 
@@ -82,12 +103,10 @@ end
 
 --- Wipeout buffer `buf_id` with |:bwipeout| after unshowing it
 ---
----@param buf_id number Buffer identifier (see |bufnr()|) to use. Default:
----   0 for current.
----@param force boolean Whether to ignore unsaved changes (using `!` version of
----   command). Default: `false`.
+---@param buf_id __bufremove_buf_id
+---@param force __bufremove_force
 ---
----@return boolean Whether operation was successful.
+---@return __bufremove_return
 MiniBufremove.wipeout = function(buf_id, force)
   if H.is_disabled() then return end
 
@@ -96,10 +115,9 @@ end
 
 --- Stop showing buffer `buf_id` in all windows
 ---
----@param buf_id number Buffer identifier (see |bufnr()|) to use. Default:
----   0 for current.
+---@param buf_id __bufremove_buf_id
 ---
----@return boolean Whether operation was successful.
+---@return __bufremove_return
 MiniBufremove.unshow = function(buf_id)
   if H.is_disabled() then return end
 
@@ -114,10 +132,13 @@ end
 
 --- Stop showing current buffer of window `win_id`
 ---
----@param win_id number Window identifier (see |win_getid()|) to use.
+--- Notes:
+--- - If `win_id` represents |cmdline-window|, this function will close it.
+---
+---@param win_id number|nil Window identifier (see |win_getid()|) to use.
 ---   Default: 0 for current.
 ---
----@return boolean Whether operation was successful.
+---@return __bufremove_return
 MiniBufremove.unshow_in_window = function(win_id)
   if H.is_disabled() then return nil end
 
@@ -129,6 +150,11 @@ MiniBufremove.unshow_in_window = function(win_id)
 
   -- Temporary use window `win_id` as current to have Vim's functions working
   vim.api.nvim_win_call(win_id, function()
+    if vim.fn.getcmdwintype() ~= '' then
+      vim.cmd('close!')
+      return
+    end
+
     -- Try using alternate buffer
     local alt_buf = vim.fn.bufnr('#')
     if alt_buf ~= cur_buf and vim.fn.buflisted(alt_buf) == 1 then
@@ -160,7 +186,10 @@ H.setup_config = function(config)
   vim.validate({ config = { config, 'table', true } })
   config = vim.tbl_deep_extend('force', H.default_config, config or {})
 
-  vim.validate({ set_vim_settings = { config.set_vim_settings, 'boolean' } })
+  vim.validate({
+    set_vim_settings = { config.set_vim_settings, 'boolean' },
+    silent = { config.silent, 'boolean' },
+  })
 
   return config
 end
@@ -203,8 +232,12 @@ H.unshow_and_cmd = function(buf_id, force, cmd)
   --   it gives E516 for `MiniBufremove.delete()` (`wipeout` works).
   -- - If `wipe` then `unshow()` already `bwipeout`ed buffer. Without `pcall`
   --   it gives E517 for module's `wipeout()` (still E516 for `delete()`).
+  --
+  -- Also account for executing command in command-line window.
+  -- It gives E11 if trying to execute command. The `unshow()` call should
+  -- close such window but somehow it doesn't seem to happen immediately.
   local ok, result = pcall(vim.cmd, command)
-  if not (ok or result:find('E516') or result:find('E517')) then
+  if not (ok or result:find('E516%D') or result:find('E517%D') or result:find('E11%D')) then
     H.message(result)
     return false
   end
@@ -214,6 +247,8 @@ end
 
 -- Utilities ------------------------------------------------------------------
 H.echo = function(msg, is_important)
+  if MiniBufremove.config.silent then return end
+
   -- Construct message chunks
   msg = type(msg) == 'string' and { { msg } } or msg
   table.insert(msg, 1, { '(mini.bufremove) ', 'WarningMsg' })

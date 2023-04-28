@@ -1,31 +1,43 @@
--- MIT License Copyright (c) 2022 Evgeni Chasnovski
-
--- Documentation ==============================================================
---- Write and use extensive neovim plugin tests
+--- *mini.test* Test Neovim plugins
+--- *MiniTest*
+---
+--- MIT License Copyright (c) 2022 Evgeni Chasnovski
+---
+--- ==============================================================================
 ---
 --- Features:
 --- - Test action is defined as a named callable entry of a table.
+---
 --- - Helper for creating child Neovim process which is designed to be used in
 ---   tests (including taking and verifying screenshots). See
 ---   |MiniTest.new_child_neovim()| and |Minitest.expect.reference_screenshot()|.
+---
 --- - Hierarchical organization of tests with custom hooks, parametrization,
 ---   and user data. See |MiniTest.new_set()|.
+---
 --- - Emulation of 'Olivine-Labs/busted' interface (`describe`, `it`, etc.).
+---
 --- - Predefined small yet usable set of expectations (`assert`-like functions).
 ---   See |MiniTest.expect|.
+---
 --- - Customizable definition of what files should be tested.
+---
 --- - Test case filtering. There are predefined wrappers for testing a file
 ---   (|MiniTest.run_file()|) and case at a location like current cursor position
 ---   (|MiniTest.run_at_location()|).
+---
 --- - Customizable reporter of output results. There are two predefined ones:
 ---     - |MiniTest.gen_reporter.buffer()| for interactive usage.
 ---     - |MiniTest.gen_reporter.stdout()| for headless Neovim.
+---
 --- - Customizable project specific testing script.
 ---
 --- What it doesn't support:
 --- - Parallel execution. Due to idea of limiting implementation complexity.
+---
 --- - Mocks, stubs, etc. Use child Neovim process and manually override what is
 ---   needed. Reset child process it afterwards.
+---
 --- - "Overly specific" expectations. Tests for (no) equality and (absence of)
 ---   errors usually cover most of the needs. Adding new expectations is a
 ---   subject to weighing its usefulness against additional implementation
@@ -33,6 +45,7 @@
 ---
 --- For more information see:
 --- - 'TESTING.md' file for a hands-on introduction based on examples.
+---
 --- - Code of this plugin's tests. Consider it to be an example of intended
 ---   way to use 'mini.test' for test organization and creation.
 ---
@@ -40,9 +53,11 @@
 ---
 --- - Organize tests in separate files. Each test file should return a test set
 ---   (explicitly or implicitly by using "busted" style functions).
+---
 --- - Write test actions as callable entries of test set. Use child process
 ---   inside test actions (see |MiniTest.new_child_neovim()|) and builtin
 ---   expectations (see |MiniTest.expect|).
+---
 --- - Run tests. This does two steps:
 ---     - *Collect*. This creates single hierarchical test set, flattens into
 ---       array of test cases (see |MiniTest-test-case|) while expanding with
@@ -62,6 +77,8 @@
 --- You can override runtime config settings locally to buffer inside
 --- `vim.b.minitest_config` which should have same structure as `MiniTest.config`.
 --- See |mini.nvim-buffer-local-config| for more details.
+---
+--- To stop module from showing non-error feedback, set `config.silent = true`.
 ---
 --- # Comparisons~
 ---
@@ -112,13 +129,11 @@
 ---
 --- # Disabling~
 ---
---- To disable, set `g:minitest_disable` (globally) or `b:minitest_disable`
---- (for a buffer) to `v:true`. Considering high number of different scenarios
+--- To disable, set `vim.g.minitest_disable` (globally) or `vim.b.minitest_disable`
+--- (for a buffer) to `true`. Considering high number of different scenarios
 --- and customization intentions, writing exact rules for disabling module's
 --- functionality is left to user. See |mini.nvim-disabling-recipes| for common
 --- recipes.
----@tag mini.test
----@tag MiniTest
 
 -- Module definition ==========================================================
 local MiniTest = {}
@@ -130,6 +145,15 @@ local H = {}
 ---
 ---@usage `require('mini.test').setup({})` (replace `{}` with your `config` table)
 MiniTest.setup = function(config)
+  -- TODO: Remove after Neovim<=0.6 support is dropped
+  if vim.fn.has('nvim-0.7') == 0 then
+    vim.notify(
+      '(mini.test) Neovim<0.7 is soft deprecated (module works but not supported).'
+        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
+        .. ' Please update your Neovim version.'
+    )
+  end
+
   -- Export module
   _G.MiniTest = MiniTest
 
@@ -140,14 +164,28 @@ MiniTest.setup = function(config)
   H.apply_config(config)
 
   -- Create highlighting
+  local color_fail = vim.g.terminal_color_1 or '#FF0000'
+  local color_pass = vim.g.terminal_color_2 or '#00FF00'
   local command = string.format(
     [[hi default MiniTestFail guifg=%s gui=bold
       hi default MiniTestPass guifg=%s gui=bold
       hi default MiniTestEmphasis gui=bold]],
-    vim.g.terminal_color_1 or '#FF0000',
-    vim.g.terminal_color_2 or '#00FF00'
+    color_fail,
+    color_pass
   )
   vim.cmd(command)
+
+  local augroup_hl_cmd = string.format(
+    [[augroup MiniTest
+        au!
+        au ColorScheme * hi default MiniTestFail guifg=%s gui=bold
+        au ColorScheme * hi default MiniTestPass guifg=%s gui=bold
+        au ColorScheme * hi default MiniTestEmphasis gui=bold
+      augroup END]],
+    color_fail,
+    color_pass
+  )
+  vim.cmd(augroup_hl_cmd)
 end
 
 --stylua: ignore start
@@ -184,6 +222,9 @@ MiniTest.config = {
   -- Path (relative to current directory) to script which handles project
   -- specific test running
   script_path = 'scripts/minitest.lua',
+
+  -- Whether to disable showing non-error feedback
+  silent = false,
 }
 --minidoc_afterlines_end
 --stylua: ignore end
@@ -351,8 +392,8 @@ end
 ---
 --- Can be used inside hooks and main test callable of test case.
 ---
----@param f function Callable to be executed after current callable is finished
----   executing (regardless of whether it ended with error or not).
+---@param f function|table Callable to be executed after current callable is
+---   finished executing (regardless of whether it ended with error or not).
 MiniTest.finally = function(f) H.cache.finally = f end
 
 --- Run tests
@@ -675,7 +716,7 @@ end
 
 --- Expect function call to raise error
 ---
----@param f function Function to be tested for raising error.
+---@param f function|table Callable to be tested for raising error.
 ---@param pattern string|nil Pattern which error message should match.
 ---   Use `nil` or empty string to not test for pattern matching.
 ---@param ... any Extra arguments with which `f` will be called.
@@ -696,7 +737,7 @@ end
 
 --- Expect function call to not raise error
 ---
----@param f function Function to be tested for raising error.
+---@param f function|table Callable to be tested for raising error.
 ---@param ... any Extra arguments with which `f` will be called.
 MiniTest.expect.no_error = function(f, ...)
   local ok, err = pcall(f, ...)
@@ -770,12 +811,12 @@ end
 --- Helper for writing custom functions with behavior similar to other methods
 --- of |MiniTest.expect|.
 ---
----@param subject string|function Subject of expectation. If function, called with
----   expectation input arguments to produce string value.
----@param predicate function Predicate function. Called with expectation input
----   arguments. Output `false` or `nil` means failed expectation.
----@param fail_context string|function Information about fail. If function, called
----   with expectation input arguments to produce string value.
+---@param subject string|function|table Subject of expectation. If callable,
+---   called with expectation input arguments to produce string value.
+---@param predicate function|table Predicate callable. Called with expectation
+---   input arguments. Output `false` or `nil` means failed expectation.
+---@param fail_context string|function|table Information about fail. If callable,
+---   called with expectation input arguments to produce string value.
 ---
 ---@return function Expectation function.
 ---
@@ -1064,24 +1105,20 @@ MiniTest.new_child_neovim = function()
     args = args or {}
     opts = vim.tbl_deep_extend('force', { nvim_executable = vim.v.progpath, connection_timeout = 5000 }, opts or {})
 
-    -- Using 'libuv' for creating a job is crucial for getting this to work in
-    -- Github Actions. Other approaches:
-    -- - Use built-in `vim.fn.jobstart(args)`. Works locally but doesn't work
-    --   in Github Action.
-    -- - Use `plenary.job`. Works fine both locally and in Github Action, but
-    --   needs a 'plenary.nvim' dependency (not exactly bad, but undesirable).
-
     -- Make unique name for `--listen` pipe
     local job = { address = vim.fn.tempname() }
 
-    local full_args = { '--clean', '-n', '--listen', job.address }
+    local full_args = { opts.nvim_executable, '--clean', '-n', '--listen', job.address }
     vim.list_extend(full_args, args)
 
-    job.stdin, job.stdout, job.stderr = vim.loop.new_pipe(false), vim.loop.new_pipe(false), vim.loop.new_pipe(false)
-    job.handle, job.pid = vim.loop.spawn(opts.nvim_executable, {
-      stdio = { job.stdin, job.stdout, job.stderr },
-      args = full_args,
-    }, function() end)
+    -- Using 'libuv' for creating a job is crucial for getting this to work in
+    -- Github Actions. Other approaches:
+    -- - Using `{ pty = true }` seems crucial to make this work on GitHub CI.
+    -- - Using `vim.loop.spawn()` is doable, but has issues on Neovim>=0.9:
+    --     - https://github.com/neovim/neovim/issues/21630
+    --     - https://github.com/neovim/neovim/issues/21886
+    --     - https://github.com/neovim/neovim/issues/22018
+    job.id = vim.fn.jobstart(full_args, { pty = true })
 
     local step = 10
     local connected, i, max_tries = nil, 0, math.floor(opts.connection_timeout / step)
@@ -1099,41 +1136,25 @@ MiniTest.new_child_neovim = function()
 
     child.job = job
     start_args, start_opts = args, opts
-
-    -- Close immediately on Neovim>=0.9 to avoid hanging (see
-    -- https://github.com/neovim/neovim/issues/21630)
-    if vim.fn.has('nvim-0.9') == 1 then
-      child.job.stdin:close()
-      child.job.stdout:close()
-      child.job.stderr:close()
-    end
   end
 
   child.stop = function()
     if not child.is_running() then return end
 
-    -- It is important to close these because there is an upper limit on how
-    -- many resources `vim.loop` (libuv) can have. If not, this will result
-    -- into "connection refused" errors while trying to connect.
-    -- NOTE: it is also important to close this before ending child process.
-    -- Otherwise it seems to result in hanging process during test runs (often
-    -- seen in Github actions for Neovim>=0.7, but not locally).
-    if vim.fn.has('nvim-0.9') ~= 1 then
-      child.job.stdin:close()
-      child.job.stdout:close()
-      child.job.stderr:close()
-    end
-
     -- Properly exit Neovim. `pcall` avoids `channel closed by client` error.
+    -- Also wait for it to actually close. This reduces simultaneously opened
+    -- Neovim instances and CPU load (overall reducing flacky tests).
     pcall(child.cmd, 'silent! 0cquit')
+    vim.fn.jobwait({ child.job.id }, 1000)
 
+    -- Close all used channels. Prevents `too many open files` type of errors.
     pcall(vim.fn.chanclose, child.job.channel)
+    pcall(vim.fn.chanclose, child.job.id)
 
     -- Remove file for address to reduce chance of "can't open file" errors, as
     -- address uses temporary unique files
     pcall(vim.fn.delete, child.job.address)
 
-    child.job.handle:kill(9)
     child.job = nil
   end
 
@@ -1451,7 +1472,7 @@ end
 ---
 ---@param args table Array with arguments for executable. Will be prepended
 ---   with `{'--clean', '-n', '--listen', <some address>}` (see |startup-options|).
----@param opts table Options:
+---@param opts table|nil Options:
 ---   - <nvim_executable> - name of Neovim executable. Default: |v:progpath|.
 ---   - <connection_timeout> - stop trying to connect after this amount of
 ---     milliseconds. Default: 5000.
@@ -1475,7 +1496,7 @@ end
 ---   |v:errmsg| was updated).
 --- - Key '<' as separate entry may not be escaped as '<LT>'.
 ---
----@param wait number Number of milliseconds to wait after each entry. May be
+---@param wait number|nil Number of milliseconds to wait after each entry. May be
 ---   omitted, in which case no waiting is done.
 ---@param ... string|table<number,string> Separate entries for |nvim_input()|,
 ---   after which `wait` will be applied. Can be either string or array of strings.
@@ -1595,6 +1616,7 @@ H.setup_config = function(config)
     collect = { config.collect, 'table' },
     execute = { config.execute, 'table' },
     script_path = { config.script_path, 'string' },
+    silent = { config.silent, 'boolean' },
   })
 
   vim.validate({
@@ -2222,6 +2244,8 @@ end
 
 -- Utilities ------------------------------------------------------------------
 H.echo = function(msg, is_important)
+  if H.get_config().silent then return end
+
   -- Construct message chunks
   msg = type(msg) == 'string' and { { msg } } or msg
   table.insert(msg, 1, { '(mini.test) ', 'WarningMsg' })

@@ -17,6 +17,43 @@ You can make contributions in the following ways:
 
 All well-intentioned, polite, and respectful contributions are always welcome! Thanks for reading this!
 
+## Commit messages
+
+- Try to make commit message as concise as possible while giving enough information about nature of a change. Think about whether it will be easy to understand in one year time when browsing through commit history.
+- Use two part structure:
+    - First part is a change overview in present tense, preferably in single line under 80 characters. Should end with a period. Usually should be enough.
+
+      **If commit affects only one particular module (as it usually should), prepend with "(mini.\<module-name\>) ".** If commit ensures something for all modules but not necessary touches all of them, use "(all) ".
+
+    - Second part is optional and should contain details about the change after empty line and "Details:". Use bullet list with `-`.
+
+      Use "Resolves #xxx" as separate entry if this commit resolves issue or PR.
+
+- Use these prefixes after initial module name in described situations:
+    - "FEATURE:" - if change implements new feature (like option or function).
+    - "BREAKING:" - if change breaks current documented behavior.
+    - "BREAKING FEATURE:" - if change introduces new feature while breaking current documented behavior.
+    - "NEW MODULE:" - if change introduces new module (see 'MAINTAINING.md').
+
+- Use module's function and field names without module's name. Like `add()` and not `MiniSurround.add()`.
+
+Examples:
+
+```
+Fix typo in 'README.md'.
+```
+
+```
+(mini.animate) Update `cursor` to use virtual columns.
+
+Details:
+- Resolves #258.
+```
+
+```
+(mini.comment) FEATURE: add `options.pad_comment_leaders` option.
+```
+
 ## Generating help file
 
 If your contribution updates annotations used to generate help file, please regenerate it. You can make this with one of the following (assuming current directory being project root):
@@ -44,56 +81,6 @@ This project uses [StyLua](https://github.com/JohnnyMorganz/StyLua) version 0.14
     - Manually run `stylua .` from the root directory of this project.
     - [Install pre-commit](https://pre-commit.com/#install) and enable it with `pre-commit install` (from the root directory). This will auto-format relevant code before making commits.
 
-## Implementation notes
-
-- Use module's `H.get_config()` helper to get its `config`. This way allows using buffer local configuration.
-
-- Checklist for adding new config setting:
-    - Add code which uses new setting.
-    - Add default value to `Mini*.config` definition.
-    - Update module's `H.setup_config()` with type check of new setting.
-    - Update tests to test default config value and its type check.
-    - Regenerate help file.
-    - Update module's README in 'readmes' directory.
-    - Possible update demo for it to be aligned with current config values.
-    - Update 'CHANGELOG.md'. In module's section of current version add line starting with `- FEATURE: Implement ...`.
-
-- Checklist for adding new plugin integration:
-    - Update file 'lua/mini/base16.lua' in a way similar to other already added plugins:
-        - Add definitions for highlight groups.
-        - Add plugin entry in a list of supported plugins in help annotations.
-    - Regenerate documentation (see [](#generating-help-file)).
-
-- Checklist for adding new module:
-    - Add Lua source code in 'lua' directory.
-    - Add tests in 'tests' directory. Use 'tests/dir-xxx' name for module-specific non-test helpers.
-    - Update 'lua/init.lua' to mention new module: both in initial table of contents and list of modules.
-    - Update 'scripts/minidoc.lua' to generate separate help file.
-    - Generate help files.
-    - Add README to 'readmes' directory. NOTE: comment out mentions of `stable` branch, as it won't work during beta-testing.
-    - Update main README to mention new module: both in table of contents and subsection.
-    - Update 'scripts/dual_sync.sh' to include new module.
-    - Update 'CHANGELOG.md' to mention introduction of new module.
-    - Make standalone plugin:
-        - Create new empty GitHub repository. Disable Issues and limit PRs.
-        - Create initial structure. For list of tracked files see 'scripts/dual_sync.sh'. Initially they are 'doc/mini-xxx.txt', 'lua/mini/xxx.lua', 'LICENSE', and 'readmes/mini-xxx.md' (copied to be 'README.md' in standalone repository). NOTE: Modify 'README.md' to have appropriate relative links (see patch script).
-        - Make initial commit and push.
-
-- Checklist for making release:
-    - Check for `TODO`s about actions to be done *before* release.
-    - Update READMEs of new modules to mention `stable` branch.
-    - Bump version in 'CHANGELOG.md'. Commit.
-    - Checkout to `new_release` branch and push to check in CI. **Proceed only if it is successful**.
-    - Make annotated tag: `git tag -a v0.xx.0 -m 'Version 0.xx.0'`. Push it.
-    - Check that all CI has passed.
-    - Make GitHub release. Get description from copying entries of version's 'CHANGELOG.md' section.
-    - Move `stable` branch to point at new tag.
-    - Manage standalone repositories. In each one:
-        - Make annotated tag.
-        - Move existing `stable` branch or create one if it doesn't exist.
-    - Use development version in 'CHANGELOG.md' ('0.(xx + 1).0.9000'). Commit.
-    - Check for `TODO`s about actions to be done *after* release.
-
 ## List of highlight groups
 
 Here is a list of all highlight groups defined inside 'mini.nvim' modules. See documentation in 'doc' directory to find out what they are used for.
@@ -110,12 +97,16 @@ Here is a list of all highlight groups defined inside 'mini.nvim' modules. See d
 
 - 'mini.indentscope':
     - `MiniIndentscopeSymbol`
+    - `MiniIndentscopeSymbolOff`
 
 - 'mini.jump':
     - `MiniJump`
 
 - 'mini.jump2d':
+    - `MiniJump2dDim`
     - `MiniJump2dSpot`
+    - `MiniJump2dSpotAhead`
+    - `MiniJump2dSpotUnique`
 
 - 'mini.map':
     - `MiniMapNormal`

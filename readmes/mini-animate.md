@@ -22,7 +22,7 @@ If you want to help this project grow but don't know where to start, check out [
 
 ## Demo
 
-https://user-images.githubusercontent.com/24854248/208977267-e332c9d8-5232-450c-ae6b-d12a4899c23c.mp4
+https://user-images.githubusercontent.com/24854248/215829092-5aba4e8d-94a5-43da-8ef0-243bf0708f76.mp4
 
 ## Features
 
@@ -37,20 +37,19 @@ https://user-images.githubusercontent.com/24854248/208977267-e332c9d8-5232-450c-
 - `MiniAnimate.animate()` function which can be used to perform own animations.
 
 Notes:
-- Although all animations work in all supported versions of Neovim, scroll and resize animations have best experience with Neovim>=0.9 (current nightly release).
+- Although all animations work in all supported versions of Neovim, scroll and resize animations have best experience with Neovim>=0.9.
+- Scroll and resize animations actually change Neovim state to achieve their effects and are asynchronous. This can cause following issues:
+    - If you have remapped any movement operation to center after it is done (like with `nzvzz` or `<C-d>zz`), you need to change those mappings. Either remove them or update to use `MiniAnimate.execute_after()` (see `:h MiniAnimate.config.scroll`)
+    - Using mouse wheel to scroll can appear slower or can have visual jitter. This usually happens due to high number of wheel turns per second: each turn is taking over previous one to start new animation. To mitigate this, you can either modify 'mousescroll' option (set vertical scroll to 1 and use high turn speed or set to high value and use one turn at a time) or `config.scroll` to fine tune when/how scroll animation is done.
 
 ## Installation
 
 This plugin can be installed as part of 'mini.nvim' library (**recommended**) or as a standalone Git repository.
 
-<!-- TODO: Uncomment use of `stable` branch before 0.7.0 release -->
-
-<!-- There are two branches to install from: -->
-
-During beta-testing phase there is only one branch to install from:
+There are two branches to install from:
 
 - `main` (default, **recommended**) will have latest development version of plugin. All changes since last stable release should be perceived as being in beta testing phase (meaning they already passed alpha-testing and are moderately settled).
-<!-- - `stable` will be updated only upon releases with code tested during public beta-testing phase in `main` branch. -->
+- `stable` will be updated only upon releases with code tested during public beta-testing phase in `main` branch.
 
 Here are code snippets for some common installation methods (use only one):
 
@@ -65,21 +64,19 @@ Here are code snippets for some common installation methods (use only one):
     </thead>
     <tbody>
         <tr>
-            <!-- <td rowspan=2>'mini.nvim' library</td> -->
-            <td rowspan=1>'mini.nvim' library</td>
+            <td rowspan=2>'mini.nvim' library</td>
             <td>Main</td> <td><code>{ 'echasnovski/mini.nvim', version = false },</code></td>
         </tr>
-        <!-- <tr> -->
-        <!--     <td>Stable</td> <td><code>{ 'echasnovski/mini.nvim', version = '*' },</code></td> -->
-        <!-- </tr> -->
         <tr>
-            <!-- <td rowspan=2>Standalone plugin</td> -->
-            <td rowspan=1>Standalone plugin</td>
+            <td>Stable</td> <td><code>{ 'echasnovski/mini.nvim', version = '*' },</code></td>
+        </tr>
+        <tr>
+            <td rowspan=2>Standalone plugin</td>
             <td>Main</td> <td><code>{ 'echasnovski/mini.animate', version = false },</code></td>
         </tr>
-        <!-- <tr> -->
-        <!--     <td>Stable</td> <td><code>{ 'echasnovski/mini.animate', version = '*' },</code></td> -->
-        <!-- </tr> -->
+        <tr>
+            <td>Stable</td> <td><code>{ 'echasnovski/mini.animate', version = '*' },</code></td>
+        </tr>
     </tbody>
 </table>
 </details>
@@ -95,20 +92,18 @@ Here are code snippets for some common installation methods (use only one):
     </thead>
     <tbody>
         <tr>
-            <!-- <td rowspan=2>'mini.nvim' library</td> -->
-            <td rowspan=1>'mini.nvim' library</td>
+            <td rowspan=2>'mini.nvim' library</td>
             <td>Main</td> <td><code>use 'echasnovski/mini.nvim'</code></td>
         </tr>
-        <!-- <tr> -->
-        <!--     <td>Stable</td> <td><code>use { 'echasnovski/mini.nvim', branch = 'stable' }</code></td> -->
-        <!-- </tr> -->
         <tr>
-            <!-- <td rowspan=2>Standalone plugin</td> <td>Main</td> <td><code>use 'echasnovski/mini.animate'</code></td> -->
-            <td rowspan=1>Standalone plugin</td> <td>Main</td> <td><code>use 'echasnovski/mini.animate'</code></td>
+            <td>Stable</td> <td><code>use { 'echasnovski/mini.nvim', branch = 'stable' }</code></td>
         </tr>
-        <!-- <tr> -->
-        <!--     <td>Stable</td> <td><code>use { 'echasnovski/mini.animate', branch = 'stable' }</code></td> -->
-        <!-- </tr> -->
+        <tr>
+            <td rowspan=2>Standalone plugin</td> <td>Main</td> <td><code>use 'echasnovski/mini.animate'</code></td>
+        </tr>
+        <tr>
+            <td>Stable</td> <td><code>use { 'echasnovski/mini.animate', branch = 'stable' }</code></td>
+        </tr>
     </tbody>
 </table>
 </details>
@@ -124,20 +119,18 @@ Here are code snippets for some common installation methods (use only one):
     </thead>
     <tbody>
         <tr>
-            <!-- <td rowspan=2>'mini.nvim' library</td> -->
-            <td rowspan=1>'mini.nvim' library</td>
+            <td rowspan=2>'mini.nvim' library</td>
             <td>Main</td> <td><code>Plug 'echasnovski/mini.nvim'</code></td>
         </tr>
-        <!-- <tr> -->
-        <!--     <td>Stable</td> <td><code>Plug 'echasnovski/mini.nvim', { 'branch': 'stable' }</code></td> -->
-        <!-- </tr> -->
         <tr>
-            <!-- <td rowspan=2>Standalone plugin</td> <td>Main</td> <td><code>Plug 'echasnovski/mini.animate'</code></td> -->
-            <td rowspan=1>Standalone plugin</td> <td>Main</td> <td><code>Plug 'echasnovski/mini.animate'</code></td>
+            <td>Stable</td> <td><code>Plug 'echasnovski/mini.nvim', { 'branch': 'stable' }</code></td>
         </tr>
-        <!-- <tr> -->
-        <!--     <td>Stable</td> <td><code>Plug 'echasnovski/mini.animate', { 'branch': 'stable' }</code></td> -->
-        <!-- </tr> -->
+        <tr>
+            <td rowspan=2>Standalone plugin</td> <td>Main</td> <td><code>Plug 'echasnovski/mini.animate'</code></td>
+        </tr>
+        <tr>
+            <td>Stable</td> <td><code>Plug 'echasnovski/mini.animate', { 'branch': 'stable' }</code></td>
+        </tr>
     </tbody>
 </table>
 </details>

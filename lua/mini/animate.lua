@@ -1,35 +1,47 @@
--- MIT License Copyright (c) 2022 Evgeni Chasnovski
-
--- Documentation ==============================================================
---- Animate common Neovim actions
+--- *mini.animate* Animate common Neovim actions
+--- *MiniAnimate*
+---
+--- MIT License Copyright (c) 2022 Evgeni Chasnovski
+---
+--- ==============================================================================
 ---
 --- Features:
 --- - Works out of the box with a single `require('mini.animate').setup()`.
 ---   No extra mappings or commands needed.
+---
 --- - Animate cursor movement inside same buffer by showing customizable path.
 ---   See |MiniAnimate.config.cursor| for more details.
+---
 --- - Animate scrolling with a series of subscrolls ("smooth scrolling").
 ---   See |MiniAnimate.config.scroll| for more details.
+---
 --- - Animate window resize by gradually changing sizes of all windows.
 ---   See |MiniAnimate.config.resize| for more details.
+---
 --- - Animate window open/close with visually updating floating window.
 ---   See |MiniAnimate.config.open| and |MiniAnimate.config.close| for more details.
+---
 --- - Timings for all actions can be customized independently.
 ---   See |MiniAnimate-timing| for more details.
+---
 --- - Action animations can be enabled/disabled independently.
+---
 --- - All animations are asynchronous/non-blocking and trigger a targeted event
 ---   which can be used to perform actions after animation is done.
+---
 --- - |MiniAnimate.animate()| function which can be used to perform own animations.
 ---
 --- Notes:
 --- - Cursor movement is animated inside same window and buffer, not as cursor
 ---   moves across the screen.
+---
 --- - Scroll and resize animations are done with "side effects": they actually
 ---   change the state of what is animated (window view and sizes
 ---   respectively). This has a downside of possibly needing extra work to
 ---   account for asynchronous nature of animation (like adjusting certain
 ---   mappings, etc.). See |MiniAnimate.config.scroll| and
 ---   |MiniAnimate.config.resize| for more details.
+---
 --- - Although all animations work in all supported versions of Neovim, scroll
 ---   and resize animations have best experience with Neovim>=0.9 (current nightly
 ---   release). This is due to updated implementation of |WinScrolled| event.
@@ -80,13 +92,11 @@
 ---
 --- # Disabling~
 ---
---- To disable, set `g:minianimate_disable` (globally) or `b:minianimate_disable`
---- (for a buffer) to `v:true`. Considering high number of different scenarios
---- and customization intentions, writing exact rules for disabling module's
---- functionality is left to user. See |mini.nvim-disabling-recipes| for common
---- recipes.
----@tag mini.animate
----@tag MiniAnimate
+--- To disable, set `vim.g.minianimate_disable` (globally) or
+--- `vim.b.minianimate_disable` (for a buffer) to `true`. Considering high
+--- number of different scenarios and customization intentions, writing exact
+--- rules for disabling module's functionality is left to user. See
+--- |mini.nvim-disabling-recipes| for common recipes.
 
 ---@diagnostic disable:undefined-field
 
@@ -100,6 +110,15 @@ local H = {}
 ---
 ---@usage `require('mini.animate').setup({})` (replace `{}` with your `config` table)
 MiniAnimate.setup = function(config)
+  -- TODO: Remove after Neovim<=0.6 support is dropped
+  if vim.fn.has('nvim-0.7') == 0 then
+    vim.notify(
+      '(mini.animate) Neovim<0.7 is soft deprecated (module works but not supported).'
+        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
+        .. ' Please update your Neovim version.'
+    )
+  end
+
   -- Export module
   _G.MiniAnimate = MiniAnimate
 
@@ -131,8 +150,11 @@ MiniAnimate.setup = function(config)
         au WinScrolled       * lua MiniAnimate.auto_resize(); MiniAnimate.auto_scroll()
         au BufEnter,WinEnter * lua vim.schedule(MiniAnimate.track_scroll_state)
         au CursorMoved       * lua vim.schedule(MiniAnimate.track_scroll_state_partial)
+        au CmdlineLeave      * lua MiniAnimate.on_cmdline_leave()
         au WinNew            * lua vim.schedule(MiniAnimate.auto_openclose)
         au WinClosed         * lua MiniAnimate.auto_openclose("close")
+
+        au ColorScheme       * hi default MiniAnimateCursor gui=reverse,nocombine
       augroup END]],
     false
   )
@@ -577,11 +599,11 @@ end
 ---     - Any wait time less than 1 ms means that action will be executed
 ---       immediately.
 ---
----@param step_action function Callable which takes `step` (integer 0, 1, 2,
+---@param step_action function|table Callable which takes `step` (integer 0, 1, 2,
 ---   etc. indicating current step) and executes some action. Its return value
 ---   defines when animation should stop: values `false` and `nil` (equivalent
 ---   to no explicit return) stop animation timer; any other continues it.
----@param step_timing function Callable which takes `step` (integer 1, 2, etc.
+---@param step_timing function|table Callable which takes `step` (integer 1, 2, etc.
 ---   indicating next step) and returns how many milliseconds to wait before
 ---   executing this step action.
 ---@param opts table|nil Options. Possible fields:
@@ -643,7 +665,7 @@ end
 ---@seealso |MiniIndentscope.gen_animation| for similar concept in 'mini.indentscope'.
 MiniAnimate.gen_timing = {}
 
----@alias __timing_opts table Options that control progression. Possible keys:
+---@alias __animate_timing_opts table|nil Options that control progression. Possible keys:
 ---   - <easing> `(string)` - a subtype of progression. One of "in"
 ---     (accelerating from zero speed), "out" (decelerating to zero speed),
 ---     "in-out" (default; accelerating halfway, decelerating after).
@@ -651,7 +673,7 @@ MiniAnimate.gen_timing = {}
 ---   - <unit> `(string)` - which unit's duration `opts.duration` controls. One
 ---     of "step" (default; ensures average duration of step to be `opts.duration`)
 ---     or "total" (ensures fixed total duration regardless of scope's range).
----@alias __timing_return function Timing function (see |MiniAnimate-timing|).
+---@alias __animate_timing_return function Timing function (see |MiniAnimate-timing|).
 
 --- Generate timing with no animation
 ---
@@ -663,37 +685,37 @@ end
 
 --- Generate timing with linear progression
 ---
----@param opts __timing_opts
+---@param opts __animate_timing_opts
 ---
----@return __timing_return
+---@return __animate_timing_return
 MiniAnimate.gen_timing.linear = function(opts) return H.timing_arithmetic(0, H.normalize_timing_opts(opts)) end
 
 --- Generate timing with quadratic progression
 ---
----@param opts __timing_opts
+---@param opts __animate_timing_opts
 ---
----@return __timing_return
+---@return __animate_timing_return
 MiniAnimate.gen_timing.quadratic = function(opts) return H.timing_arithmetic(1, H.normalize_timing_opts(opts)) end
 
 --- Generate timing with cubic progression
 ---
----@param opts __timing_opts
+---@param opts __animate_timing_opts
 ---
----@return __timing_return
+---@return __animate_timing_return
 MiniAnimate.gen_timing.cubic = function(opts) return H.timing_arithmetic(2, H.normalize_timing_opts(opts)) end
 
 --- Generate timing with quartic progression
 ---
----@param opts __timing_opts
+---@param opts __animate_timing_opts
 ---
----@return __timing_return
+---@return __animate_timing_return
 MiniAnimate.gen_timing.quartic = function(opts) return H.timing_arithmetic(3, H.normalize_timing_opts(opts)) end
 
 --- Generate timing with exponential progression
 ---
----@param opts __timing_opts
+---@param opts __animate_timing_opts
 ---
----@return __timing_return
+---@return __animate_timing_return
 MiniAnimate.gen_timing.exponential = function(opts) return H.timing_geometrical(H.normalize_timing_opts(opts)) end
 
 --- Generate cursor animation path
@@ -713,18 +735,18 @@ MiniAnimate.gen_timing.exponential = function(opts) return H.timing_geometrical(
 ---   })
 MiniAnimate.gen_path = {}
 
----@alias __path_opts_common table Options that control generator. Possible keys:
+---@alias __animate_path_opts_common table|nil Options that control generator. Possible keys:
 ---   - <predicate> `(function)` - a callable which takes `destination` as input and
 ---     returns boolean value indicating whether animation should be done.
 ---     Default: `false` if `destination` is within one line of origin (reduces
 ---     flickering), `true` otherwise.
----@alias __path_return function Path function (see |MiniAnimate.config.cursor|).
+---@alias __animate_path_return function Path function (see |MiniAnimate.config.cursor|).
 
 --- Generate path as shortest line
 ---
----@param opts __path_opts_common
+---@param opts __animate_path_opts_common
 ---
----@return __path_return
+---@return __animate_path_return
 MiniAnimate.gen_path.line = function(opts)
   opts = vim.tbl_deep_extend('force', { predicate = H.default_path_predicate }, opts or {})
 
@@ -733,12 +755,12 @@ end
 
 --- Generate path as line/column angle
 ---
----@param opts __path_opts_common
+---@param opts __animate_path_opts_common
 ---   - <first_direction> `(string)` - one of `"horizontal"` (default; animates
 ---     across initial line first) or `"vertical"` (animates across initial
 ---     column first).
 ---
----@return __path_return
+---@return __animate_path_return
 MiniAnimate.gen_path.angle = function(opts)
   opts = opts or {}
   local predicate = opts.predicate or H.default_path_predicate
@@ -780,10 +802,10 @@ end
 
 --- Generate path as closing walls at final position
 ---
----@param opts __path_opts_common
+---@param opts __animate_path_opts_common
 ---   - <width> `(number)` - initial width of left and right walls. Default: 10.
 ---
----@return __path_return
+---@return __animate_path_return
 MiniAnimate.gen_path.walls = function(opts)
   opts = opts or {}
   local predicate = opts.predicate or H.default_path_predicate
@@ -808,10 +830,10 @@ end
 
 --- Generate path as diminishing spiral at final position
 ---
----@param opts __path_opts_common
+---@param opts __animate_path_opts_common
 ---   - <width> `(number)` - initial width of spiral. Default: 2.
 ---
----@return __path_return
+---@return __animate_path_return
 MiniAnimate.gen_path.spiral = function(opts)
   opts = opts or {}
   local predicate = opts.predicate or H.default_path_predicate
@@ -861,7 +883,7 @@ MiniAnimate.gen_subscroll = {}
 
 --- Generate subscroll with equal steps
 ---
----@param opts table Options that control generator. Possible keys:
+---@param opts table|nil Options that control generator. Possible keys:
 ---   - <predicate> `(function)` - a callable which takes `total_scroll` as
 ---     input and returns boolean value indicating whether animation should be
 ---     done. Default: `false` if `total_scroll` is 1 or less (reduces
@@ -899,7 +921,7 @@ MiniAnimate.gen_subresize = {}
 
 --- Generate subresize with equal steps
 ---
----@param opts table Options that control generator. Possible keys:
+---@param opts table|nil Options that control generator. Possible keys:
 ---   - <predicate> `(function)` - a callable which takes `sizes_from` and
 ---     `sizes_to` as input and returns boolean value indicating whether
 ---     animation should be done. Default: always `true`.
@@ -944,11 +966,11 @@ end
 ---   })
 MiniAnimate.gen_winconfig = {}
 
----@alias __winconfig_opts_common table Options that control generator. Possible keys:
+---@alias __animate_winconfig_opts_common table|nil Options that control generator. Possible keys:
 ---   - <predicate> `(function)` - a callable which takes `win_id` as input and
 ---     returns boolean value indicating whether animation should be done.
 ---     Default: always `true`.
----@alias __winconfig_return function Winconfig function (see |MiniAnimate.config.open|
+---@alias __animate_winconfig_return function Winconfig function (see |MiniAnimate.config.open|
 ---   or |MiniAnimate.config.close|).
 
 --- Generate winconfig for static floating window
@@ -956,12 +978,12 @@ MiniAnimate.gen_winconfig = {}
 --- This will result into floating window statically covering whole target
 --- window.
 ---
----@param opts __winconfig_opts_common
+---@param opts __animate_winconfig_opts_common
 ---   - <n_steps> `(number)` - number of output steps, all with same config.
 ---     Usefule to tweak smoothness of transparency animation (done inside
 ---     `winblend` config option). Default: 25.
 ---
----@return __winconfig_return
+---@return __animate_winconfig_return
 MiniAnimate.gen_winconfig.static = function(opts)
   opts = vim.tbl_deep_extend('force', { predicate = H.default_winconfig_predicate, n_steps = 25 }, opts or {})
 
@@ -973,12 +995,12 @@ end
 --- This will result into floating window growing from or shrinking to the
 --- target window center.
 ---
----@param opts __winconfig_opts_common
+---@param opts __animate_winconfig_opts_common
 ---   - <direction> `(string)` - one of `"to_center"` (default; window will
 ---     shrink from full coverage to center) or `"from_center"` (window will
 ---     grow from center to full coverage).
 ---
----@return __winconfig_return
+---@return __animate_winconfig_return
 MiniAnimate.gen_winconfig.center = function(opts)
   opts = opts or {}
   local predicate = opts.predicate or H.default_winconfig_predicate
@@ -1027,12 +1049,12 @@ end
 --- vertically split window will progress towards vertical edge; horizontally -
 --- towards horizontal.
 ---
----@param opts __winconfig_opts_common
+---@param opts __animate_winconfig_opts_common
 ---   - <direction> `(string)` - one of `"to_edge"` (default; window will
 ---     shrink from full coverage to nearest edge) or `"from_edge"` (window
 ---     will grow from edge to full coverage).
 ---
----@return __winconfig_return
+---@return __animate_winconfig_return
 MiniAnimate.gen_winconfig.wipe = function(opts)
   opts = opts or {}
   local predicate = opts.predicate or H.default_winconfig_predicate
@@ -1123,7 +1145,7 @@ MiniAnimate.gen_winblend = {}
 
 --- Generate linear `winblend` progression
 ---
----@param opts table Options that control generator. Possible keys:
+---@param opts table|nil Options that control generator. Possible keys:
 ---   - <from> `(number)` - initial value of 'winblend'.
 ---   - <to> `(number)` - final value of 'winblend'.
 ---
@@ -1181,7 +1203,7 @@ MiniAnimate.auto_scroll = function()
   local scroll_config = H.get_config().scroll
   if not scroll_config.enable or H.is_disabled() then
     -- Reset state to not use an outdated one if enabled again
-    H.cache.scroll_state = { buf_id = nil, win_id = nil, view = {} }
+    H.cache.scroll_state = { buf_id = nil, win_id = nil, view = {}, cursor = {} }
     return
   end
 
@@ -1228,9 +1250,18 @@ MiniAnimate.track_scroll_state_partial = function()
   -- a proper state tracking
   if H.cache.scroll_is_active then return end
 
-  local view = H.cache.scroll_state.view
-  local cur_pos = H.getcursorcharpos()
-  view.lnum, view.col = cur_pos[2], cur_pos[3] - 1
+  H.cache.scroll_state.cursor = { line = vim.fn.line('.'), virtcol = H.virtcol('.') }
+end
+
+MiniAnimate.on_cmdline_leave = function()
+  local cmd_type = vim.fn.getcmdtype()
+  local is_insearch = vim.o.incsearch and (cmd_type == '/' or cmd_type == '?')
+  if not is_insearch then return end
+
+  -- Update scroll state so that there is no scroll animation after confirming
+  -- incremental search. Otherwise it leads to unnecessary animation from
+  -- initial scroll state to the one **already shown**.
+  MiniAnimate.track_scroll_state()
 end
 
 --- Automatically animate window resize
@@ -1316,7 +1347,7 @@ H.cache = {
   -- Scroll animation data
   scroll_event_id = 0,
   scroll_is_active = false,
-  scroll_state = { buf_id = nil, win_id = nil, view = {} },
+  scroll_state = { buf_id = nil, win_id = nil, view = {}, cursor = {} },
 
   -- Resize animation data
   resize_event_id = 0,
@@ -1419,9 +1450,8 @@ H.make_cursor_step = function(state_from, state_to, opts)
 end
 
 H.get_cursor_state = function()
-  -- Use character column to allow tracking outside of line width
-  local curpos = H.getcursorcharpos()
-  return { buf_id = vim.api.nvim_get_current_buf(), pos = { curpos[2], curpos[3] + curpos[4] } }
+  -- Use virtual column to respect position outside of line width and tabs
+  return { buf_id = vim.api.nvim_get_current_buf(), pos = { vim.fn.line('.'), H.virtcol('.') } }
 end
 
 H.draw_cursor_mark = function(line, virt_col, buf_id)
@@ -1474,8 +1504,8 @@ H.make_scroll_step = function(state_from, state_to, opts)
   local scroll_key = from_line < to_line and '\5' or '\25'
 
   -- Cache frequently accessed data
-  local from_cur_line, to_cur_line = state_from.view.lnum, state_to.view.lnum
-  local from_cur_col, to_cur_col = state_from.view.col, state_to.view.col
+  local from_cur_line, to_cur_line = state_from.cursor.line, state_to.cursor.line
+  local from_cur_virtcol, to_cur_virtcol = state_from.cursor.virtcol, state_to.cursor.virtcol
 
   local event_id, buf_id, win_id = H.cache.scroll_event_id, state_from.buf_id, state_from.win_id
   local n_steps, timing = #step_scrolls, opts.timing
@@ -1496,11 +1526,11 @@ H.make_scroll_step = function(state_from, state_to, opts)
       -- at least for default equally spread subscrolls).
       local coef = step / n_steps
       local cursor_line = H.convex_point(from_cur_line, to_cur_line, coef)
-      local cursor_col = H.convex_point(from_cur_col, to_cur_col, coef)
-      local cursor_pos = { cursor_line, cursor_col }
+      local cursor_virtcol = H.convex_point(from_cur_virtcol, to_cur_virtcol, coef)
+      local cursor_data = { line = cursor_line, virtcol = cursor_virtcol }
 
       -- Preform scroll. Possibly stop on error.
-      local ok, _ = pcall(H.scroll_action, scroll_key, step_scrolls[step], cursor_pos)
+      local ok, _ = pcall(H.scroll_action, scroll_key, step_scrolls[step], cursor_data)
       if not ok then return H.stop_scroll(state_to) end
 
       -- Update current scroll state for two reasons:
@@ -1518,7 +1548,7 @@ H.make_scroll_step = function(state_from, state_to, opts)
   }
 end
 
-H.scroll_action = function(key, n, cursor_pos)
+H.scroll_action = function(key, n, cursor_data)
   -- Scroll. Allow supplying non-valid `n` for initial "scroll" which sets
   -- cursor immediately, which reduces flicker.
   if n ~= nil and n > 0 then
@@ -1532,8 +1562,12 @@ H.scroll_action = function(key, n, cursor_pos)
   -- later "bounce" back on view restore (see
   -- https://github.com/echasnovski/mini.nvim/issues/177).
   local top, bottom = vim.fn.line('w0'), vim.fn.line('w$')
-  local line = math.min(math.max(cursor_pos[1], top), bottom)
-  vim.api.nvim_win_set_cursor(0, { line, cursor_pos[2] })
+  local line = math.min(math.max(cursor_data.line, top), bottom)
+
+  -- Cursor can only be set using byte column. To place it in the most correct
+  -- virtual column, use tweaked version of `virtcol2col()`
+  local col = H.virtcol2col(line, cursor_data.virtcol)
+  pcall(vim.api.nvim_win_set_cursor, 0, { line, col - 1 })
 end
 
 H.start_scroll = function(start_state)
@@ -1547,16 +1581,30 @@ H.start_scroll = function(start_state)
   H.set_scrolloff(0)
   -- Allow placing cursor anywhere on screen for better cursor placing
   H.set_virtualedit('all')
-  if start_state ~= nil then vim.fn.winrestview(start_state.view) end
+
+  if start_state ~= nil then
+    vim.fn.winrestview(start_state.view)
+    -- Track state because `winrestview()` later triggers `WinScrolled`.
+    -- Otherwise mapping like `u<Cmd>lua _G.n = 0<CR>` (as in 'mini.bracketed')
+    -- can result into "inverted scroll": from destination to current state.
+    MiniAnimate.track_scroll_state()
+  end
+
   return true
 end
 
 H.stop_scroll = function(end_state)
-  if end_state ~= nil then vim.fn.winrestview(end_state.view) end
+  if end_state ~= nil then
+    vim.fn.winrestview(end_state.view)
+    MiniAnimate.track_scroll_state()
+  end
+
   H.set_scrolloff(end_state.scrolloff)
   H.set_virtualedit(end_state.virtualedit)
+
   H.cache.scroll_is_active = false
   H.trigger_done_event('scroll')
+
   return false
 end
 
@@ -1565,6 +1613,7 @@ H.get_scroll_state = function()
     buf_id = vim.api.nvim_get_current_buf(),
     win_id = vim.api.nvim_get_current_win(),
     view = vim.fn.winsaveview(),
+    cursor = { line = vim.fn.line('.'), virtcol = H.virtcol('.') },
     scrolloff = H.cache.scroll_is_active and H.cache.scroll_state.scrolloff or H.get_scrolloff(),
     virtualedit = H.cache.scroll_is_active and H.cache.scroll_state.virtualedit or H.get_virtualedit(),
   }
@@ -1655,10 +1704,17 @@ H.get_layout_windows = function(layout)
 end
 
 H.apply_resize_state = function(state, full_view)
+  -- Set window sizes while ensuring that 'cmdheight' will not change. Can
+  -- happen if chaning height of window main row layout or increase terminal
+  -- height quickly (see #270)
+  local cache_cmdheight = vim.o.cmdheight
+
   for win_id, dims in pairs(state.sizes) do
     vim.api.nvim_win_set_height(win_id, dims.height)
     vim.api.nvim_win_set_width(win_id, dims.width)
   end
+
+  vim.o.cmdheight = cache_cmdheight
 
   -- Use `or {}` to allow states without `view` (mainly inside animation)
   for win_id, view in pairs(state.views or {}) do
@@ -1675,7 +1731,7 @@ H.apply_resize_state = function(state, full_view)
 
       -- This triggers `CursorMoved` event, but nothing can be done
       -- (`noautocmd` is of no use, see https://github.com/vim/vim/issues/2084)
-      vim.api.nvim_win_set_cursor(win_id, { view.lnum, view.leftcol })
+      pcall(vim.api.nvim_win_set_cursor, win_id, { view.lnum, view.leftcol })
       vim.fn.winrestview({ topline = view.topline, leftcol = view.leftcol })
     end)
   end
@@ -2104,7 +2160,23 @@ end
 H.convex_point = function(x, y, coef) return H.round((1 - coef) * x + coef * y) end
 
 -- `virtcol2col()` is only present in Neovim>=0.8. Earlier Neovim versions will
--- have troubles dealing with multibyte characters.
-H.virtcol2col = vim.fn.virtcol2col or function(_, _, col) return col end
+-- have troubles dealing with multibyte characters and tabs.
+if vim.fn.exists('*virtcol2col') == 1 then
+  H.virtcol2col = function(line, virtcol)
+    local col = vim.fn.virtcol2col(0, line, virtcol)
+
+    -- Corrent for virtual column being outside of line's last virtual column
+    local virtcol_past_lineend = vim.fn.virtcol({ line, '$' })
+    if virtcol_past_lineend <= virtcol then col = col + virtcol - virtcol_past_lineend + 1 end
+
+    return col
+  end
+
+  H.virtcol = vim.fn.virtcol
+else
+  H.virtcol2col = function(_, col) return col end
+
+  H.virtcol = vim.fn.col
+end
 
 return MiniAnimate

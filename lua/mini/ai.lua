@@ -1,9 +1,13 @@
--- MIT License Copyright (c) 2022 Evgeni Chasnovski
-
--- Documentation ==============================================================
---- Module for extending and creating `a`/`i` textobjects. It enhances some builtin
---- |text-objects| (like |a(|, |a)|, |a'|, and more), creates new ones (like `a*`, `a<Space>`,
---- `af`, `a?`, and more), and allows user to create their own.
+--- *mini.ai* Extend and create a/i textobjects
+--- *MiniAi*
+---
+--- MIT License Copyright (c) 2022 Evgeni Chasnovski
+---
+--- ==============================================================================
+---
+--- Enhance some builtin |text-objects| (like |a(|, |a)|, |a'|, and more),
+--- create new ones (like `a*`, `a<Space>`, `af`, `a?`, and more), and allow
+--- user to create their own.
 ---
 --- Features:
 --- - Customizable creation of `a`/`i` textobjects using Lua patterns and functions.
@@ -13,6 +17,7 @@
 ---     - Different search methods (see |MiniAi.config|).
 ---     - Consecutive application (update selection without leaving Visual mode).
 ---     - Aliases for multiple textobjects.
+---
 --- - Comprehensive builtin textobjects (see more in |MiniAi-textobject-builtin|):
 ---     - Balanced brackets (with and without whitespace) plus alias.
 ---     - Balanced quotes plus alias.
@@ -21,9 +26,12 @@
 ---     - Tag.
 ---     - Derived from user prompt.
 ---     - Default for punctuation, digit, or whitespace single character.
+---
 --- - Motions for jumping to left/right edge of textobject.
+---
 --- - Set of specification generators to tweak some builtin textobjects (see
 ---   |MiniAi.gen_spec|).
+---
 --- - Treesitter textobjects (through |MiniAi.gen_spec.treesitter()| helper).
 ---
 --- This module works by defining mappings for both `a` and `i` in Visual and
@@ -35,6 +43,7 @@
 --- Known issues which won't be resolved:
 --- - Search for builtin textobjects is done mostly using Lua patterns
 ---   (regex-like approach). Certain amount of false positives is to be expected.
+---
 --- - During search for builtin textobjects there is no distinction if it is
 ---   inside string or comment. For example, in the following case there will
 ---   be wrong match for a function call: `f(a = ")", b = 1)`.
@@ -61,6 +70,8 @@
 --- You can override runtime config settings (like `config.custom_textobjects`)
 --- locally to buffer inside `vim.b.miniai_config` which should have same structure
 --- as `MiniAi.config`. See |mini.nvim-buffer-local-config| for more details.
+---
+--- To stop module from showing non-error feedback, set `config.silent = true`.
 ---
 --- # Comparisons~
 ---
@@ -94,13 +105,11 @@
 ---
 --- # Disabling~
 ---
---- To disable, set `g:miniai_disable` (globally) or `b:miniai_disable`
---- (for a buffer) to `v:true`. Considering high number of different scenarios
+--- To disable, set `vim.g.miniai_disable` (globally) or `vim.b.miniai_disable`
+--- (for a buffer) to `true`. Considering high number of different scenarios
 --- and customization intentions, writing exact rules for disabling module's
 --- functionality is left to user. See |mini.nvim-disabling-recipes| for common
 --- recipes.
----@tag mini.ai
----@tag MiniAi
 
 --- Builtin textobjects~
 ---
@@ -366,6 +375,15 @@ local H = {}
 ---
 ---@usage `require('mini.ai').setup({})` (replace `{}` with your `config` table)
 MiniAi.setup = function(config)
+  -- TODO: Remove after Neovim<=0.6 support is dropped
+  if vim.fn.has('nvim-0.7') == 0 then
+    vim.notify(
+      '(mini.ai) Neovim<0.7 is soft deprecated (module works but not supported).'
+        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
+        .. ' Please update your Neovim version.'
+    )
+  end
+
   -- Export module
   _G.MiniAi = MiniAi
 
@@ -501,6 +519,9 @@ MiniAi.config = {
   -- neighborhood). One of 'cover', 'cover_or_next', 'cover_or_prev',
   -- 'cover_or_nearest', 'next', 'prev', 'nearest'.
   search_method = 'cover_or_next',
+
+  -- Whether to disable showing non-error feedback
+  silent = false,
 }
 --minidoc_afterlines_end
 
@@ -607,7 +628,7 @@ end
 ---   require('mini.ai').setup({
 ---     custom_textobjects = {
 ---       -- Tweak argument to be recognized only inside `()` between `;`
----       a = gen_spec.argument({ brackets = { '%b()' }, separators = { ';' } }),
+---       a = gen_spec.argument({ brackets = { '%b()' }, separator = ';' }),
 ---
 ---       -- Tweak function call to not detect dot in function name
 ---       f = gen_spec.function_call({ name_pattern = '[%w_]' }),
@@ -630,33 +651,35 @@ MiniAi.gen_spec = {}
 --- Examples:
 --- - `argument({ brackets = { '%b()' } })` will search for an argument only
 ---   inside balanced `()`.
---- - `argument({ separators = { ',', ';' } })` will consider both `,` and `;`
----   to be separators.
+--- - `argument({ separator = '[,;]' })` will treat both `,` and `;` as separators.
 --- - `argument({ exclude_regions = { '%b()' } })` will exclude separators
 ---   which are inside balanced `()` (inside outer brackets).
 ---
 ---@param opts table|nil Options. Allowed fields:
----   - <brackets> - table with patterns for outer balanced brackets.
+---   - <brackets> - array of patterns for outer balanced brackets.
 ---     Default: `{ '%b()', '%b[]', '%b{}' }` (any `()`, `[]`, or `{}` can
 ---     enclose arguments).
----   - <separators> - table with single character separators.
----     Default: `{ ',' }` (arguments are separated with `,`).
----   - <exclude_regions> - table with patterns for regions inside which
+---   - <separator> - separator pattern. Default: `','`.
+---     One of the practical usages of this option is to include whitespace
+---     around character to be a part of separator. For example, `'%s*,%s*'`
+---     will treat as separator not only ',', but its possible surrounding
+---     whitespace. This has both positive and negative effects. On one hand,
+---     `daa` executed over the first argument will delete whitespace after
+---     first comma, leading to a more expected outcome. On the other hand it
+---     is ambiguous which argument is picked when cursor is over whitespace
+---     near the character separator.
+---   - <exclude_regions> - array with patterns for regions inside which
 ---     separators will be ignored.
 ---     Default: `{ '%b""', "%b''", '%b()', '%b[]', '%b{}' }` (separators
 ---     inside balanced quotes or brackets are ignored).
 MiniAi.gen_spec.argument = function(opts)
   opts = vim.tbl_deep_extend('force', {
     brackets = { '%b()', '%b[]', '%b{}' },
-    separators = { ',' },
+    separator = ',',
     exclude_regions = { '%b""', "%b''", '%b()', '%b[]', '%b{}' },
   }, opts or {})
-  local brackets, separators, exclude_regions = opts.brackets, opts.separators, opts.exclude_regions
 
-  if type(opts.brackets) == 'string' then opts.brackets = { opts.brackets } end
-  local separators_esc = vim.tbl_map(vim.pesc, separators)
-  local sep_str = table.concat(separators_esc, '')
-  local sep_pattern, nosep_pattern = '[' .. sep_str .. ']', '[^' .. sep_str .. ']'
+  local brackets, separator, exclude_regions = opts.brackets, opts.separator, opts.exclude_regions
 
   local res = {}
   -- Match brackets
@@ -666,54 +689,100 @@ MiniAi.gen_spec.argument = function(opts)
   res[2] = function(s, init)
     -- Cache string separators per spec as they are used multiple times.
     -- Storing per spec allows coexistence of several argument specifications.
-    H.cache.argument_seps = H.cache.argument_seps or {}
-    H.cache.argument_seps[res] = H.cache.argument_seps[res] or {}
-    local seps = H.cache.argument_seps[res][s] or H.arg_get_separators(s, sep_pattern, exclude_regions)
-    H.cache.argument_seps[res][s] = seps
+    H.cache.argument_sep_spans = H.cache.argument_sep_spans or {}
+    H.cache.argument_sep_spans[res] = H.cache.argument_sep_spans[res] or {}
+    local sep_spans = H.cache.argument_sep_spans[res][s] or H.arg_get_separator_spans(s, separator, exclude_regions)
+    H.cache.argument_sep_spans[res][s] = sep_spans
 
     -- Return span fully on right of `init`, `nil` otherwise
     -- For first argument returns left bracket; for last - right one.
-    for i = 1, #seps - 1 do
-      if init <= seps[i] then return seps[i], seps[i + 1] end
+    for i = 1, #sep_spans - 1 do
+      if init <= sep_spans[i][1] then return sep_spans[i][1], sep_spans[i + 1][2] end
     end
 
     return nil
   end
 
   -- Make extraction part
-  local match_and_shrink = function(left, left_keep, right, right_keep)
-    local pattern = '^' .. left .. '.*' .. right .. '$'
-    return function(s, init)
-      if init > 1 then return nil end
-      if not s:find(pattern) then return nil end
-      return left_keep and 1 or 2, s:len() - (right_keep and 0 or 1)
-    end
-  end
-
-  -- `a` type depends on argument number, `i` - as `a` but without whitespace
-  -- The reason for this complex solution is the following requirements:
+  --
+  -- Extraction of `a` type depends on argument number, `i` - as `a` but
+  -- without separators and inner whitespace. The reason for this complex
+  -- solution are the following requirements:
   -- - Don't match argument region when cursor is on the outer bracket.
   --   Example: `f(xxx)` should select argument only when cursor is on 'x'.
-  -- - Don't select edge whitespace for first and last argument BUT match when
-  --   cursor is on them. This is useful when working with padded brackets.
+  -- - Don't select edge whitespace for first and last argument BUT MATCH WHEN
+  --   CURSOR IS ON THEM which needs to match edge whitespace right until the
+  --   extraction part. This is useful when working with padded brackets.
   --   Example for `f(  xx  ,  yy  )`:
   --     - `a` object should select 'xx  ,' when cursor is on all '  xx  ';
   --       should select ',  yy' when cursor is on all '  yy  '.
   --     - `i` object should select 'xx' when cursor is on all '  xx  ';
   --       should select 'yy' when cursor is on all '  yy  '.
-  res[3] = {
-    -- Middle argument. Include only left separator.
-    { match_and_shrink(sep_pattern, true, sep_pattern, false), '^.%s*().-()%s*$' },
+  --
+  -- At this stage whether argument is first, middle, last, or single is
+  -- determined by presence of matching separator at either left or right edge.
+  -- If edge matches separator pattern - it has separator. If not - a bracket.
+  local left_edge_separator = '^' .. separator
+  local find_after_left_separator = function(s)
+    local _, sep_end = s:find(left_edge_separator)
+    if sep_end == nil then return nil end
+    return sep_end + 1
+  end
+  local find_after_left_bracket = function(s)
+    local left_sep = find_after_left_separator(s)
+    if left_sep ~= nil then return nil end
+    return 2
+  end
 
+  local right_edge_sep = separator .. '$'
+  local find_before_right_separator = function(s)
+    local sep_start, _ = s:find(right_edge_sep)
+    if sep_start == nil then return nil end
+    return sep_start - 1
+  end
+  local find_before_right_bracket = function(s)
+    local right_sep = find_before_right_separator(s)
+    if right_sep ~= nil then return nil end
+    return s:len() - 1
+  end
+
+  local match_and_include = function(left_type, left_include, right_type, right_include)
+    local find_after_left = left_type == 'bracket' and find_after_left_bracket or find_after_left_separator
+    local find_before_right = right_type == 'bracket' and find_before_right_bracket or find_before_right_separator
+
+    return function(s, init)
+      -- Match only once
+      if init > 1 then return nil end
+
+      -- Make sure that string matches left and right targets
+      local left_after, right_before = find_after_left(s), find_before_right(s)
+      if left_after == nil or right_before == nil then return nil end
+
+      -- Possibly include matched edge targets
+      local left = left_include and 1 or left_after
+      local right = right_include and s:len() or right_before
+
+      return left, right
+    end
+  end
+
+  local extract_first_arg = '^%s*()().-()%s*' .. separator .. '()$'
+  local extract_nonfirst_arg = '^()' .. separator .. '%s*().-()()%s*$'
+  local extract_single_arg = '^%s*().-()%s*$'
+
+  res[3] = {
     -- First argument. Include right separator, exclude left whitespace.
-    { match_and_shrink(nosep_pattern, false, sep_pattern, true), '^%s*()().-()%s*.()$' },
+    { match_and_include('bracket', false, 'separator', true), extract_first_arg },
+
+    -- Middle argument. Include only left separator.
+    { match_and_include('separator', true, 'separator', false), extract_nonfirst_arg },
 
     -- Last argument. Include left separator, exclude right whitespace.
     -- NOTE: it misbehaves for whitespace argument. It's OK because it's rare.
-    { match_and_shrink(sep_pattern, true, nosep_pattern, false), '^().%s*().-()()%s*$' },
+    { match_and_include('separator', true, 'bracket', false), extract_nonfirst_arg },
 
     -- Single argument. Include both whitespace (makes `aa` and `ia` differ).
-    { match_and_shrink(nosep_pattern, false, nosep_pattern, false), '^%s*().-()%s*$' },
+    { match_and_include('bracket', false, 'bracket', false), extract_single_arg },
   }
 
   return res
@@ -840,7 +909,7 @@ end
 ---   <a> and <i> fields with captures for `a` and `i` textobjects respectively.
 ---   Each value can be either a string capture (should start with `'@'`) or an
 ---   array of such captures (best among all matches will be chosen).
----@param opts table Options. Possible values:
+---@param opts table|nil Options. Possible values:
 ---   - <use_nvim_treesitter> - whether to try to use 'nvim-treesitter' plugin
 ---     (if present) to do the query. It implements more advanced behavior at
 ---     cost of increased execution time. Provides more coherent experience if
@@ -1125,6 +1194,7 @@ H.setup_config = function(config)
     mappings = { config.mappings, 'table' },
     n_lines = { config.n_lines, 'number' },
     search_method = { config.search_method, H.is_search_method },
+    silent = { config.silent, 'boolean' },
   })
 
   vim.validate({
@@ -1353,13 +1423,18 @@ H.get_default_opts = function()
 end
 
 -- Work with argument textobject ----------------------------------------------
-H.arg_get_separators = function(s, sep_pattern, exclude_regions)
+H.arg_get_separator_spans = function(s, sep_pattern, exclude_regions)
   if s:len() <= 2 then return {} end
 
-  -- Get all separators
-  local seps = {}
-  s:gsub('()' .. sep_pattern, function(x) table.insert(seps, x) end)
-  if #seps == 0 then return { 1, s:len() } end
+  -- Pre-compute edge separator spans (assumes edge characters are brackets)
+  local left_bracket_span = { 1, 1 }
+  local right_bracket_span = { s:len(), s:len() }
+
+  -- Get all separator spans (meaning separator is allowed to match more than
+  -- a single character)
+  local sep_spans = {}
+  s:gsub('()' .. sep_pattern .. '()', function(l, r) table.insert(sep_spans, { l, r - 1 }) end)
+  if #sep_spans == 0 then return { left_bracket_span, right_bracket_span } end
 
   -- Remove separators that are in "excluded regions": by default, inside
   -- brackets or quotes
@@ -1371,12 +1446,12 @@ H.arg_get_separators = function(s, sep_pattern, exclude_regions)
     inner_s:gsub(capture_pat, add_to_forbidden)
   end
 
-  local res = vim.tbl_filter(function(x) return not H.is_point_inside_spans(x, forbidden) end, seps)
+  local res = vim.tbl_filter(function(x) return not H.is_span_inside_spans(x, forbidden) end, sep_spans)
 
   -- Append edge separators (assumes first and last characters are from
   -- brackets). This allows single argument and ensures at least 2 elements.
-  table.insert(res, 1, 1)
-  table.insert(res, s:len())
+  table.insert(res, 1, left_bracket_span)
+  table.insert(res, right_bracket_span)
   return res
 end
 
@@ -1442,7 +1517,7 @@ end
 
 -- Work with matching spans ---------------------------------------------------
 ---@param neighborhood table Output of `get_neighborhood()`.
----@param tobj_spec table
+---@param tobj_spec table Textobject specification.
 ---@param reference_span table Span to cover.
 ---@param opts table Fields: <search_method>.
 ---@private
@@ -1657,9 +1732,9 @@ H.is_span_on_left = function(span_1, span_2)
   return (span_1.from <= span_2.from) and (span_1.to <= span_2.to)
 end
 
-H.is_point_inside_spans = function(point, spans)
+H.is_span_inside_spans = function(ref_span, spans)
   for _, span in ipairs(spans) do
-    if span[1] <= point and point <= span[2] then return true end
+    if span[1] <= ref_span[1] and ref_span[2] <= span[2] then return true end
   end
   return false
 end
@@ -1837,8 +1912,14 @@ H.is_visual_mode = function()
 end
 
 H.exit_to_normal_mode = function()
-  -- '\28\14' is an escaped version of `<C-\><C-n>`
-  vim.cmd('normal! \28\14')
+  -- Don't use `<C-\><C-n>` in command-line window as they close it
+  if vim.fn.getcmdwintype() ~= '' then
+    local is_vis, cur_mode = H.is_visual_mode()
+    if is_vis then vim.cmd('normal! ' .. cur_mode) end
+  else
+    -- '\28\14' is an escaped version of `<C-\><C-n>`
+    vim.cmd('normal! \28\14')
+  end
 end
 
 H.get_visual_region = function()
@@ -1856,6 +1937,8 @@ end
 
 -- Utilities ------------------------------------------------------------------
 H.echo = function(msg, is_important)
+  if H.get_config().silent then return end
+
   -- Construct message chunks
   msg = type(msg) == 'string' and { { msg } } or msg
   table.insert(msg, 1, { '(mini.ai) ', 'WarningMsg' })

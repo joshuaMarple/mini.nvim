@@ -1,32 +1,43 @@
+*mini.test* Test Neovim plugins
+*MiniTest*
+
+MIT License Copyright (c) 2022 Evgeni Chasnovski
+
 ==============================================================================
-------------------------------------------------------------------------------
-                                                                     *mini.test*
-                                                                      *MiniTest*
-Write and use extensive neovim plugin tests
 
 Features:
 - Test action is defined as a named callable entry of a table.
+
 - Helper for creating child Neovim process which is designed to be used in
   tests (including taking and verifying screenshots). See
   |MiniTest.new_child_neovim()| and |Minitest.expect.reference_screenshot()|.
+
 - Hierarchical organization of tests with custom hooks, parametrization,
   and user data. See |MiniTest.new_set()|.
+
 - Emulation of 'Olivine-Labs/busted' interface (`describe`, `it`, etc.).
+
 - Predefined small yet usable set of expectations (`assert`-like functions).
   See |MiniTest.expect|.
+
 - Customizable definition of what files should be tested.
+
 - Test case filtering. There are predefined wrappers for testing a file
   (|MiniTest.run_file()|) and case at a location like current cursor position
   (|MiniTest.run_at_location()|).
+
 - Customizable reporter of output results. There are two predefined ones:
     - |MiniTest.gen_reporter.buffer()| for interactive usage.
     - |MiniTest.gen_reporter.stdout()| for headless Neovim.
+
 - Customizable project specific testing script.
 
 What it doesn't support:
 - Parallel execution. Due to idea of limiting implementation complexity.
+
 - Mocks, stubs, etc. Use child Neovim process and manually override what is
   needed. Reset child process it afterwards.
+
 - "Overly specific" expectations. Tests for (no) equality and (absence of)
   errors usually cover most of the needs. Adding new expectations is a
   subject to weighing its usefulness against additional implementation
@@ -34,6 +45,7 @@ What it doesn't support:
 
 For more information see:
 - 'TESTING.md' file for a hands-on introduction based on examples.
+
 - Code of this plugin's tests. Consider it to be an example of intended
   way to use 'mini.test' for test organization and creation.
 
@@ -41,9 +53,11 @@ For more information see:
 
 - Organize tests in separate files. Each test file should return a test set
   (explicitly or implicitly by using "busted" style functions).
+
 - Write test actions as callable entries of test set. Use child process
   inside test actions (see |MiniTest.new_child_neovim()|) and builtin
   expectations (see |MiniTest.expect|).
+
 - Run tests. This does two steps:
     - *Collect*. This creates single hierarchical test set, flattens into
       array of test cases (see |MiniTest-test-case|) while expanding with
@@ -63,6 +77,8 @@ See |MiniTest.config| for available config settings.
 You can override runtime config settings locally to buffer inside
 `vim.b.minitest_config` which should have same structure as `MiniTest.config`.
 See |mini.nvim-buffer-local-config| for more details.
+
+To stop module from showing non-error feedback, set `config.silent = true`.
 
 # Comparisons~
 
@@ -113,8 +129,8 @@ To change any highlight group, modify it directly with |:highlight|.
 
 # Disabling~
 
-To disable, set `g:minitest_disable` (globally) or `b:minitest_disable`
-(for a buffer) to `v:true`. Considering high number of different scenarios
+To disable, set `vim.g.minitest_disable` (globally) or `vim.b.minitest_disable`
+(for a buffer) to `true`. Considering high number of different scenarios
 and customization intentions, writing exact rules for disabling module's
 functionality is left to user. See |mini.nvim-disabling-recipes| for common
 recipes.
@@ -166,6 +182,9 @@ Default values:
     -- Path (relative to current directory) to script which handles project
     -- specific test running
     script_path = 'scripts/minitest.lua',
+
+    -- Whether to disable showing non-error feedback
+    silent = false,
   }
 <
 
@@ -329,8 +348,8 @@ Register callable execution after current callable
 Can be used inside hooks and main test callable of test case.
 
 Parameters~
-{f} `(function)` Callable to be executed after current callable is finished
-  executing (regardless of whether it ended with error or not).
+{f} `(function|table)` Callable to be executed after current callable is
+  finished executing (regardless of whether it ended with error or not).
 
 ------------------------------------------------------------------------------
                                                                 *MiniTest.run()*
@@ -518,7 +537,7 @@ Parameters~
 Expect function call to raise error
 
 Parameters~
-{f} `(function)` Function to be tested for raising error.
+{f} `(function|table)` Callable to be tested for raising error.
 {pattern} `(string|nil)` Pattern which error message should match.
   Use `nil` or empty string to not test for pattern matching.
 {...} `(any)` Extra arguments with which `f` will be called.
@@ -529,7 +548,7 @@ Parameters~
 Expect function call to not raise error
 
 Parameters~
-{f} `(function)` Function to be tested for raising error.
+{f} `(function|table)` Callable to be tested for raising error.
 {...} `(any)` Extra arguments with which `f` will be called.
 
 ------------------------------------------------------------------------------
@@ -558,12 +577,12 @@ Helper for writing custom functions with behavior similar to other methods
 of |MiniTest.expect|.
 
 Parameters~
-{subject} `(string|function)` Subject of expectation. If function, called with
-  expectation input arguments to produce string value.
-{predicate} `(function)` Predicate function. Called with expectation input
-  arguments. Output `false` or `nil` means failed expectation.
-{fail_context} `(string|function)` Information about fail. If function, called
-  with expectation input arguments to produce string value.
+{subject} `(string|function|table)` Subject of expectation. If callable,
+  called with expectation input arguments to produce string value.
+{predicate} `(function|table)` Predicate callable. Called with expectation
+  input arguments. Output `false` or `nil` means failed expectation.
+{fail_context} `(string|function|table)` Information about fail. If callable,
+  called with expectation input arguments to produce string value.
 
 Return~
 `(function)` Expectation function.
@@ -788,7 +807,7 @@ Start child process and connect to it. Won't work if child is already running.
 Parameters~
 {args} `(table)` Array with arguments for executable. Will be prepended
   with `{'--clean', '-n', '--listen', <some address>}` (see |startup-options|).
-{opts} `(table)` Options:
+{opts} `(table|nil)` Options:
   - <nvim_executable> - name of Neovim executable. Default: |v:progpath|.
   - <connection_timeout> - stop trying to connect after this amount of
     milliseconds. Default: 5000.
@@ -815,7 +834,7 @@ Differences:
 - Key '<' as separate entry may not be escaped as '<LT>'.
 
 Parameters~
-{wait} `(number)` Number of milliseconds to wait after each entry. May be
+{wait} `(number|nil)` Number of milliseconds to wait after each entry. May be
   omitted, in which case no waiting is done.
 {...} `(string|table<number,string>)` Separate entries for |nvim_input()|,
   after which `wait` will be applied. Can be either string or array of strings.

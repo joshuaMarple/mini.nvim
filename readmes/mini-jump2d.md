@@ -22,7 +22,7 @@ If you want to help this project grow but don't know where to start, check out [
 
 ## Demo
 
-https://user-images.githubusercontent.com/24854248/173044834-b7d428f5-1f5c-4ab5-8563-2c5b7abd3e10.mp4
+https://user-images.githubusercontent.com/24854248/227734716-e7b6f2a8-4db1-441d-9b37-873da6772138.mp4
 
 ## Features
 
@@ -30,6 +30,7 @@ https://user-images.githubusercontent.com/24854248/173044834-b7d428f5-1f5c-4ab5-
 - Customizable:
     - Way of computing possible jump spots with opinionated default.
     - Characters used to label jump spots during iterative filtering.
+    - Visual effects: how many steps ahead to show; dim lines with spots.
     - Action hooks to be executed at certain events during jump.
     - Allowed windows: current and/or not current.
     - Allowed lines: whether to process blank or folded lines, lines before/at/after cursor line, etc. Example: user can configure to look for spots only inside current window at or after cursor line.
@@ -152,6 +153,15 @@ Here are code snippets for some common installation methods (use only one):
   -- Characters used for labels of jump spots (in supplied order)
   labels = 'abcdefghijklmnopqrstuvwxyz',
 
+  -- Options for visual effects
+  view = {
+    -- Whether to dim lines with at least one jump spot
+    dim = false,
+
+    -- How many steps ahead to show. Set to big number to show all steps.
+    n_steps_ahead = 0,
+  },
+
   -- Which lines are used for computing spots
   allowed_lines = {
     blank = true, -- Blank line (not sent to spotter even if `true`)
@@ -177,6 +187,9 @@ Here are code snippets for some common installation methods (use only one):
   mappings = {
     start_jumping = '<CR>',
   },
+
+  -- Whether to disable showing non-error feedback
+  silent = false,
 }
 ```
 

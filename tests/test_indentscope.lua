@@ -88,6 +88,7 @@ T['setup()']['creates `config` field'] = function()
 
   eq(child.lua_get('type(_G.MiniIndentscope.config.draw.animation)'), 'function')
   expect_config('draw.delay', 100)
+  expect_config('draw.priority', 2)
   expect_config('mappings.goto_bottom', ']i')
   expect_config('mappings.goto_top', '[i')
   expect_config('mappings.object_scope', 'ii')
@@ -115,6 +116,7 @@ T['setup()']['validates `config` argument'] = function()
   expect_config_error({ draw = 'a' }, 'draw', 'table')
   expect_config_error({ draw = { delay = 'a' } }, 'draw.delay', 'number')
   expect_config_error({ draw = { animation = 'a' } }, 'draw.animation', 'function')
+  expect_config_error({ draw = { priority = 'a' } }, 'draw.priority', 'number')
   expect_config_error({ mappings = 'a' }, 'mappings', 'table')
   expect_config_error({ mappings = { object_scope = 1 } }, 'mappings.object_scope', 'string')
   expect_config_error({ mappings = { object_scope_with_border = 1 } }, 'mappings.object_scope_with_border', 'string')
@@ -316,38 +318,6 @@ T['gen_animation']['handles `n_steps=1` for all progression families and `opts.e
   expect_animation('exponential', { 20 }, { easing = 'in-out' })
 end
 
--- TODO: Remove after 0.7.0 release.
-T['gen_animation()'] = new_set()
-
-T['gen_animation()']['is possible as transition layer'] = function()
-  child.o.cmdheight = 10
-
-  -- Previous arguments should work
-  child.lua([[_G.f = MiniIndentscope.gen_animation('none')]])
-  eq(child.lua_get([[{ _G.f(1, 2), _G.f(2, 2) }]]), { 0, 0 })
-  -- Should give a change warning
-  expect.match(child.cmd_capture('1messages'), 'is now a table')
-  child.cmd('messages clear')
-
-  -- Should work with all possible previous arguments
-  child.lua([[_G.f = MiniIndentscope.gen_animation('linear', { duration = 100, unit = 'total' })]])
-  eq(child.lua_get([[{ _G.f(1, 2), _G.f(2, 2) }]]), { 50, 50 })
-
-  -- Should give warning only once
-  expect.match(child.cmd_capture('1messages'), '')
-end
-
-T['gen_animation()']['has properly documented examples'] = function()
-  child.o.cmdheight = 10
-
-  child.lua([[_G.f_old = MiniIndentscope.gen_animation('quadraticInOut', { duration = 1000, unit = 'total' })]])
-  child.lua(
-    [[_G.f_new = MiniIndentscope.gen_animation.quadratic({ easing = 'in-out', duration = 1000, unit = 'total' })]]
-  )
-
-  eq(child.lua_get('{ _G.f_old(1, 10), _G.f_old(5, 10) }'), child.lua_get('{ _G.f_new(1, 10), _G.f_new(5, 10) }'))
-end
-
 T['move_cursor()'] = new_set({
   hooks = {
     pre_case = function() set_lines(example_lines_nested) end,
@@ -406,7 +376,7 @@ T['draw()'] = new_set({
       -- Virtually disable autodrawing
       child.lua('MiniIndentscope.config.draw.delay = 100000')
       set_lines(example_lines_nested)
-      child.set_size(15, 10)
+      child.set_size(15, 12)
     end,
   },
 })
@@ -427,6 +397,34 @@ T['draw()']['works'] = function()
   sleep(test_times.animation_step)
   child.expect_screenshot()
 end
+
+local validate_hl_group = function(hl_group)
+  local ns_id = child.api.nvim_get_namespaces()['MiniIndentscope']
+  local extmarks = child.api.nvim_buf_get_extmarks(0, ns_id, 0, -1, { details = true })
+
+  local all_correct_hl_group = true
+  for _, e_mark in ipairs(extmarks) do
+    if e_mark[4].virt_text[1][2] ~= hl_group then all_correct_hl_group = false end
+  end
+
+  eq(all_correct_hl_group, true)
+end
+
+T['draw()']['uses correct highlight groups'] = new_set(
+  { parametrize = { { 2, 'MiniIndentscopeSymbol' }, { 3, 'MiniIndentscopeSymbolOff' } } },
+  {
+    test = function(shiftwidth, hl_group)
+      child.o.shiftwidth = shiftwidth
+      set_lines({ '  aa', '    aa', '  aa' })
+      set_cursor(2, 4)
+
+      child.lua('MiniIndentscope.draw()')
+      sleep(test_times.animation_step)
+
+      validate_hl_group(hl_group)
+    end,
+  }
+)
 
 T['draw()']['respects `config.draw.animation`'] = function()
   mark_flaky()
@@ -452,6 +450,25 @@ T['draw()']['respects `config.draw.animation`'] = function()
   set_cursor(1, 0)
   child.lua('vim.b.miniindentscope_config = { draw = { animation = function() return 30 end } }')
   validate(30)
+end
+
+T['draw()']['respects `config.draw.priority`'] = function()
+  mark_flaky()
+
+  local ns_id = child.api.nvim_create_namespace('indentscope-test')
+  child.api.nvim_buf_set_extmark(0, ns_id, 4, 0, { virt_text_pos = 'overlay', virt_text = { { '+' } }, priority = 5 })
+
+  set_cursor(5, 0)
+  child.lua('MiniIndentscope.draw()')
+  sleep(test_times.animation_step)
+  child.expect_screenshot()
+
+  child.lua('MiniIndentscope.undraw()')
+
+  child.lua('MiniIndentscope.config.draw.priority = 6')
+  child.lua('MiniIndentscope.draw()')
+  sleep(test_times.animation_step)
+  child.expect_screenshot()
 end
 
 T['draw()']['respects `config.symbol`'] = function()
@@ -499,7 +516,7 @@ T['undraw()'] = new_set({
       -- Virtually disable autodrawing
       child.lua('MiniIndentscope.config.draw.delay = 100000')
       set_lines(example_lines_nested)
-      child.set_size(15, 10)
+      child.set_size(15, 12)
     end,
   },
 })
@@ -519,7 +536,7 @@ T['Auto drawing'] = new_set({
   hooks = {
     pre_case = function()
       set_lines(example_lines_nested)
-      child.set_size(15, 10)
+      child.set_size(15, 12)
     end,
   },
 })

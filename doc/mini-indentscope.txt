@@ -1,8 +1,9 @@
+*mini.indentscope* Visualize and work with indent scope
+*MiniIndentscope*
+
+MIT License Copyright (c) 2022 Evgeni Chasnovski
+
 ==============================================================================
-------------------------------------------------------------------------------
-                                                              *mini.indentscope*
-                                                               *MiniIndentscope*
-Visualize and operate on indent scope
 
 Indent scope (or just "scope") is a maximum set of consecutive lines which
 contains certain reference line (cursor line by default) and every member
@@ -13,15 +14,19 @@ Features:
 - Visualize scope with animated vertical line. It is very fast and done
   automatically in a non-blocking way (other operations can be performed,
   like moving cursor). You can customize debounce delay and animation rule.
+
 - Customization of scope computation options can be done on global level
   (in |MiniIndentscope.config|), for a certain buffer (using
   `vim.b.miniindentscope_config` buffer variable), or within a call (using
   `opts` variable in |MiniIndentscope.get_scope|).
+
 - Customizable notion of a border: which adjacent lines with strictly lower
   indent are recognized as such. This is useful for a certain filetypes
   (for example, Python or plain text).
+
 - Customizable way of line to be considered "border first". This is useful
   if you want to place cursor on function header and get scope of its body.
+
 - There are textobjects and motions to operate on scope. Support |count|
   and dot-repeat (in operator pending mode).
 
@@ -49,14 +54,18 @@ You can override runtime config settings locally to buffer inside
 
 # Highlight groups~
 
-* `MiniIndentscopeSymbol` - symbol showing on every line of scope.
+* `MiniIndentscopeSymbol` - symbol showing on every line of scope if its
+  indent is multiple of 'shiftwidth'.
+* `MiniIndentscopeSymbolOff` - symbol showing on every line of scope if its
+  indent is not multiple of 'shiftwidth'.
+  Default: links to `MiniIndentscopeSymbol`.
 
 To change any highlight group, modify it directly with |:highlight|.
 
 # Disabling~
 
-To disable autodrawing, set `g:miniindentscope_disable` (globally) or
-`b:miniindentscope_disable` (for a buffer) to `v:true`. Considering high
+To disable autodrawing, set `vim.g.miniindentscope_disable` (globally) or
+`vim.b.miniindentscope_disable` (for a buffer) to `true`. Considering high
 number of different scenarios and customization intentions, writing exact
 rules for disabling module's functionality is left to user. See
 |mini.nvim-disabling-recipes| for common recipes.
@@ -96,7 +105,7 @@ Special cases~
 Module setup
 
 Parameters~
-{config} `(table)` Module config table. See |MiniIndentscope.config|.
+{config} `(table|nil)` Module config table. See |MiniIndentscope.config|.
 
 Usage~
 `require('mini.indentscope').setup({})` (replace `{}` with your `config` table)
@@ -109,6 +118,7 @@ Module config
 Default values:
 >
   MiniIndentscope.config = {
+    -- Draw options
     draw = {
       -- Delay (in ms) between event and start of drawing scope indicator
       delay = 100,
@@ -118,6 +128,9 @@ Default values:
       -- |MiniIndentscope.gen_animation| for builtin options. To disable
       -- animation, use `require('mini.indentscope').gen_animation.none()`.
       animation = --<function: implements constant 20ms between steps>,
+
+      -- Symbol priority. Increase to display on top of more symbols.
+      priority = 2,
     },
 
     -- Module mappings. Use `''` (empty string) to disable one.
@@ -245,13 +258,13 @@ For every line indent is intended to be computed unambiguously:
   |MiniIndentscope.config| for a details example.
 
 Parameters~
-{line} `(number)` Input line number (starts from 1). Can be modified to a
+{line} `(number|nil)` Input line number (starts from 1). Can be modified to a
   neighbor if `try_as_border` is `true`. Default: cursor line.
-{col} `(number)` Column number (starts from 1). Default: if
+{col} `(number|nil)` Column number (starts from 1). Default: if
   `indent_at_cursor` option is `true` - cursor column from `curswant` of
   |getcurpos()| (allows for more natural behavior on empty lines);
   `math.huge` otherwise in order to not incorporate cursor in computation.
-{opts} `(table)` Options to override global or buffer local ones (see
+{opts} `(table|nil)` Options to override global or buffer local ones (see
   |MiniIndentscope.config|).
 
 Return~
@@ -275,7 +288,7 @@ Designed to be used with |autocmd|. No need to use it directly, everything
 is setup in |MiniIndentscope.setup|.
 
 Parameters~
-{opts} `(table)` Options.
+{opts} `(table|nil)` Options.
 
 ------------------------------------------------------------------------------
                                                         *MiniIndentscope.draw()*
@@ -287,11 +300,13 @@ equal to border indent plus one (or body indent if border is absent).
 Numbering starts from one.
 
 Parameters~
-{scope} `(table)` Scope. Default: output of |MiniIndentscope.get_scope|
+{scope} `(table|nil)` Scope. Default: output of |MiniIndentscope.get_scope|
   with default arguments.
-{opts} `(table)` Options. Currently supported:
+{opts} `(table|nil)` Options. Currently supported:
    - <animation_fun> - animation function for drawing. See
      |MiniIndentscope-drawing| and |MiniIndentscope.gen_animation|.
+   - <priority> - priority number for visualization. See `priority` option
+     for |nvim_buf_set_extmark()|.
 
 ------------------------------------------------------------------------------
                                                       *MiniIndentscope.undraw()*
@@ -316,22 +331,6 @@ Examples ~
 - Use quadratic "out" easing with total duration of 1000 ms:
   `gen_animation.quadratic({ easing = 'out', duration = 1000, unit = 'total' })`
 
-Migrate from function type ~
-
-Initially `MiniIndentscope.gen_animation` was a function taking `easing`
-and `opts` as arguments. To migrate from it, perform these steps:
-- Split `easing` value into two parts: progression family ("none", "linear",
-  etc.) and acceleration type ("In", "Out", "InOut").
-- Use progression family as a field name of `gen_animation` table.
-- Convert acceleration type to other notation ("In" -> "in", "Out" ->
-  "out", "InOut" -> "in-out") and use it as `easing` field of `opts` table.
-
-Examples:
-- `MiniIndentscope.gen_animation('none')` ->
-  `MiniIndentscope.gen_animation.none()`.
-- `gen_animation('quadraticInOut', { duration = 1000, unit = 'total' })` ->
-  `gen_animation.quadratic({ easing = 'in-out', duration = 1000, unit = 'total' })`.
-
 See also~
 |MiniIndentscope-drawing| for more information about how drawing is done.
 
@@ -348,7 +347,7 @@ Show indicator immediately. Same as animation function always returning 0.
 Generate linear progression
 
 Parameters~
-{opts} `(table)` Options that control progression. Possible keys:
+{opts} `(table|nil)` Options that control progression. Possible keys:
   - <easing> `(string)` - a subtype of progression. One of "in"
     (accelerating from zero speed), "out" (decelerating to zero speed),
     "in-out" (default; accelerating halfway, decelerating after).
@@ -366,7 +365,7 @@ Return~
 Generate quadratic progression
 
 Parameters~
-{opts} `(table)` Options that control progression. Possible keys:
+{opts} `(table|nil)` Options that control progression. Possible keys:
   - <easing> `(string)` - a subtype of progression. One of "in"
     (accelerating from zero speed), "out" (decelerating to zero speed),
     "in-out" (default; accelerating halfway, decelerating after).
@@ -384,7 +383,7 @@ Return~
 Generate cubic progression
 
 Parameters~
-{opts} `(table)` Options that control progression. Possible keys:
+{opts} `(table|nil)` Options that control progression. Possible keys:
   - <easing> `(string)` - a subtype of progression. One of "in"
     (accelerating from zero speed), "out" (decelerating to zero speed),
     "in-out" (default; accelerating halfway, decelerating after).
@@ -402,7 +401,7 @@ Return~
 Generate quartic progression
 
 Parameters~
-{opts} `(table)` Options that control progression. Possible keys:
+{opts} `(table|nil)` Options that control progression. Possible keys:
   - <easing> `(string)` - a subtype of progression. One of "in"
     (accelerating from zero speed), "out" (decelerating to zero speed),
     "in-out" (default; accelerating halfway, decelerating after).
@@ -420,7 +419,7 @@ Return~
 Generate exponential progression
 
 Parameters~
-{opts} `(table)` Options that control progression. Possible keys:
+{opts} `(table|nil)` Options that control progression. Possible keys:
   - <easing> `(string)` - a subtype of progression. One of "in"
     (accelerating from zero speed), "out" (decelerating to zero speed),
     "in-out" (default; accelerating halfway, decelerating after).
@@ -441,9 +440,9 @@ Cursor is placed on a first non-blank character of target line.
 
 Parameters~
 {side} `(string)` One of "top" or "bottom".
-{use_border} `(boolean)` Whether to move to border or withing scope's body.
+{use_border} `(boolean|nil)` Whether to move to border or withing scope's body.
   If particular border is absent, body is used.
-{scope} `(table)` Scope to use. Default: output of |MiniIndentscope.get_scope()|.
+{scope} `(table|nil)` Scope to use. Default: output of |MiniIndentscope.get_scope()|.
 
 ------------------------------------------------------------------------------
                                                     *MiniIndentscope.operator()*
@@ -456,7 +455,7 @@ operator-pending mode). Doesn't move cursor for scope that is not shown
 
 Parameters~
 {side} `(string)` One of "top" or "bottom".
-{add_to_jumplist} `(boolean)` Whether to add movement to jump list. It is
+{add_to_jumplist} `(boolean|nil)` Whether to add movement to jump list. It is
   `true` only for Normal mode mappings.
 
 ------------------------------------------------------------------------------
@@ -468,7 +467,7 @@ Respects |count| and dot-repeat (in operator-pending mode). Doesn't work
 for scope that is not shown (drawing indent less that zero).
 
 Parameters~
-{use_border} `(boolean)` Whether to include border in textobject. When
+{use_border} `(boolean|nil)` Whether to include border in textobject. When
   `true` and `try_as_border` option is `false`, allows "chaining" calls for
   incremental selection.
 

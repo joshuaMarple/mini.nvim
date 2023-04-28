@@ -40,7 +40,7 @@ https://user-images.githubusercontent.com/24854248/173045302-cc4fd421-cc33-4924-
     - Change number of neighbor lines with `sn` (see |MiniSurround-algorithm|).
 - Surrounding is identified by a single character as both "input" (in `delete` and `replace` start, `find`, and `highlight`) and "output" (in `add` and `replace` end):
     - 'f' - function call (string of alphanumeric symbols or '_' or '.' followed by balanced '()'). In "input" finds function call, in "output" prompts user to enter function name.
-    - 't' - tag. In "input" finds tab with same identifier, in "output" prompts user to enter tag name.
+    - 't' - tag. In "input" finds tag with same identifier, in "output" prompts user to enter tag name.
     - All symbols in brackets '()', '[]', '{}', '<>". In "input' represents balanced brackets (open - with whitespace pad, close - without), in "output" - left and right parts of brackets.
     - '?' - interactive. Prompts user to enter left and right parts.
     - All other alphanumeric, punctuation, or space characters represent surrounding with identical left and right parts.
@@ -177,11 +177,19 @@ Here are code snippets for some common installation methods (use only one):
   -- Number of lines within which surrounding is searched
   n_lines = 20,
 
+  -- Whether to respect selection type:
+  -- - Place surroundings on separate lines in linewise mode.
+  -- - Place surroundings on each line in blockwise mode.
+  respect_selection_type = false,
+
   -- How to search for surrounding (first inside current line, then inside
   -- neighborhood). One of 'cover', 'cover_or_next', 'cover_or_prev',
   -- 'cover_or_nearest', 'next', 'prev', 'nearest'. For more details,
   -- see `:h MiniSurround.config`.
   search_method = 'cover',
+
+  -- Whether to disable showing non-error feedback
+  silent = false,
 }
 ```
 

@@ -1,7 +1,32 @@
--- MIT License Copyright (c) 2021 Evgeni Chasnovski
-
--- Documentation ==============================================================
---- Miscellaneous useful functions.
+--- *mini.misc* Miscellaneous functions
+--- *MiniMisc*
+---
+--- MIT License Copyright (c) 2021 Evgeni Chasnovski
+---
+--- ==============================================================================
+---
+--- Features the following functions:
+--- - |MiniMisc.bench_time()| to benchmark function execution time.
+---   Useful in combination with `stat_summary()`.
+---
+--- - |MiniMisc.put()| and |MiniMisc.put_text()| to pretty print its arguments
+---   into command line and current buffer respectively.
+---
+--- - |MiniMisc.setup_auto_root()| to set up automated change of current directory.
+---
+--- - |MiniMisc.setup_restore_cursor()| to set up automated restoration of
+---   cursor position on file reopen.
+---
+--- - |MiniMisc.stat_summary()| to compute summary statistics of numerical array.
+---   Useful in combination with `bench_time()`.
+---
+--- - |MiniMisc.tbl_head()| and |MiniMisc.tbl_tail()| to return "first" and "last"
+---   elements of table.
+---
+--- - |MiniMisc.zoom()| to zoom in and out of a buffer, making it full screen
+---   in a floating window.
+---
+--- - And more.
 ---
 --- # Setup~
 ---
@@ -14,8 +39,6 @@
 ---
 --- This module doesn't have runtime options, so using `vim.b.minimisc_config`
 --- will have no effect here.
----@tag mini.misc
----@tag MiniMisc
 
 -- Module definition ==========================================================
 local MiniMisc = {}
@@ -23,10 +46,19 @@ local H = {}
 
 --- Module setup
 ---
----@param config table Module config table. See |MiniMisc.config|.
+---@param config table|nil Module config table. See |MiniMisc.config|.
 ---
 ---@usage `require('mini.misc').setup({})` (replace `{}` with your `config` table)
 MiniMisc.setup = function(config)
+  -- TODO: Remove after Neovim<=0.6 support is dropped
+  if vim.fn.has('nvim-0.7') == 0 then
+    vim.notify(
+      '(mini.misc) Neovim<0.7 is soft deprecated (module works but not supported).'
+        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
+        .. ' Please update your Neovim version.'
+    )
+  end
+
   -- Export module
   _G.MiniMisc = MiniMisc
 
@@ -51,7 +83,7 @@ MiniMisc.config = {
 --- Execute `f` several times and time how long it took
 ---
 ---@param f function Function which execution to benchmark.
----@param n number Number of times to execute `f(...)`. Default: 1.
+---@param n number|nil Number of times to execute `f(...)`. Default: 1.
 ---@param ... any Arguments when calling `f`.
 ---
 ---@return ... Table with durations (in seconds; up to microseconds) and
@@ -71,7 +103,7 @@ end
 
 --- Compute width of gutter (info column on the left of the window)
 ---
----@param win_id number Window identifier (see |win_getid()|) for which gutter
+---@param win_id number|nil Window identifier (see |win_getid()|) for which gutter
 ---   width is computed. Default: 0 for current.
 MiniMisc.get_gutter_width = function(win_id)
   win_id = (win_id == nil or win_id == 0) and vim.api.nvim_get_current_win() or win_id
@@ -114,9 +146,9 @@ end
 
 --- Resize window to have exact number of editable columns
 ---
----@param win_id number Window identifier (see |win_getid()|) to be resized.
+---@param win_id number|nil Window identifier (see |win_getid()|) to be resized.
 ---   Default: 0 for current.
----@param text_width number Number of editable columns resized window will
+---@param text_width number|nil Number of editable columns resized window will
 ---   display. Default: first element of 'colorcolumn' or otherwise 'textwidth'
 ---   (using screen width as its default but not more than 79).
 MiniMisc.resize_window = function(win_id, text_width)
@@ -146,7 +178,7 @@ H.default_text_width = function(win_id)
   end
 end
 
---- Setup automated change of current directory
+--- Set up automated change of current directory
 ---
 --- What it does:
 --- - Creates autocommand which on every |BufEnter| event with |MiniMisc.find_root()|
@@ -156,7 +188,7 @@ end
 ---
 --- Note: requires |vim.fs| module (present in Neovim>=0.8).
 ---
----@param names table|function Array of file names or a callable used to
+---@param names table|function|nil Array of file names or a callable used to
 ---   identify a root directory. Forwarded to |MiniMisc.find_root()|.
 ---   Default: `{ '.git', 'Makefile' }`.
 ---
@@ -205,9 +237,9 @@ end
 ---   changes in root directory will be detected after directory path was already
 ---   used in this function. Reload Neovim to account for that.
 ---
----@param buf_id number Buffer identifier (see |bufnr()|) to use.
+---@param buf_id number|nil Buffer identifier (see |bufnr()|) to use.
 ---   Default: 0 for current.
----@param names table|function Array of file names or a callable used to
+---@param names table|function|nil Array of file names or a callable used to
 ---   identify a root directory. Forwarded to |vim.fs.find()|.
 ---   Default: `{ '.git', 'Makefile' }`.
 MiniMisc.find_root = function(buf_id, names)
@@ -244,6 +276,70 @@ MiniMisc.find_root = function(buf_id, names)
 end
 
 H.root_cache = {}
+
+--- Restore cursor position on file open
+---
+--- When reopening a file this will make sure the cursor is placed back to the
+--- position where you left before. This implements |restore-cursor| in a nicer way.
+--- File should have a recognized file type (see 'filetype') and be opened in
+--- a normal buffer (see 'buftype').
+---
+--- Note: it relies on file mark data stored in 'shadafile' (see |shada-f|).
+--- Be sure to enable it.
+---
+---@param opts table|nil Options for |MiniMisc.restore_cursor|. Possible fields:
+---   - <center> - (boolean) Center the window after we restored the cursor.
+---     Default: `true`.
+---   - <ignore_filetype> - Array with file types to be ignored (see 'filetype').
+---     Default: `{ "gitcommit", "gitrebase" }`.
+---
+---@usage >
+---   require('mini.misc').setup_restore_cursor()
+MiniMisc.setup_restore_cursor = function(opts)
+  opts = opts or {}
+
+  opts.ignore_filetype = opts.ignore_filetype or { 'gitcommit', 'gitrebase' }
+  if not H.is_array_of(opts.ignore_filetype, H.is_string) then
+    H.error('In `setup_restore_cursor()` `opts.ignore_filetype` should be an array of strings.')
+  end
+
+  if opts.center == nil then opts.center = true end
+  if type(opts.center) ~= 'boolean' then H.error('In `setup_restore_cursor()` `opts.center` should be a boolean.') end
+
+  -- TODO: use `nvim_create_autocmd()` after Neovim<=0.6 support is dropped
+  local au_command = string.format(
+    [[augroup MiniMiscRestoreCursor
+      au!
+      au BufReadPre * au FileType <buffer> ++once lua require('mini.misc').restore_cursor(%s)
+    augroup END]],
+    vim.inspect(opts, { newline = ' ', indent = '' })
+  )
+  vim.api.nvim_exec(au_command, false)
+end
+
+-- TODO: Make local once Lua autocmd is used inside `setup_restore_cursor()`
+MiniMisc.restore_cursor = function(opts)
+  -- Stop if not a normal buffer
+  if vim.bo.buftype ~= '' then return end
+
+  -- Stop if filetype is ignored
+  if vim.tbl_contains(opts.ignore_filetype, vim.bo.filetype) then return end
+
+  -- Stop if line is already specified (like during start with `nvim file +num`)
+  local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
+  if cursor_line > 1 then return end
+
+  -- Stop if can't restore proper line for some reason
+  local mark_line = vim.api.nvim_buf_get_mark(0, [["]])[1]
+  local n_lines = vim.api.nvim_buf_line_count(0)
+  if not (1 <= mark_line and mark_line <= n_lines) then return end
+
+  -- Restore cursor and open just enough folds
+  vim.cmd([[normal! g`"zv]])
+
+  -- Center window
+  if opts.center then vim.cmd('normal! zz') end
+end
 
 --- Compute summary statistics of numerical array
 ---
@@ -299,7 +395,7 @@ end
 --- Note: order of elements might vary.
 ---
 ---@param t table Input table.
----@param n number Maximum number of first elements. Default: 5.
+---@param n number|nil Maximum number of first elements. Default: 5.
 ---
 ---@return table Table with at most `n` first elements of `t` (with same keys).
 MiniMisc.tbl_head = function(t, n)
@@ -322,7 +418,7 @@ end
 --- Note: order of elements might vary.
 ---
 ---@param t table Input table.
----@param n number Maximum number of last elements. Default: 5.
+---@param n number|nil Maximum number of last elements. Default: 5.
 ---
 ---@return table Table with at most `n` last elements of `t` (with same keys).
 MiniMisc.tbl_tail = function(t, n)
@@ -364,7 +460,7 @@ end
 --- with this filetype is entered, so using non-current `buf_id` can not lead
 --- to desired effect.
 ---
----@param buf_id number Buffer identifier (see |bufnr()|) in which function
+---@param buf_id number|nil Buffer identifier (see |bufnr()|) in which function
 ---   will operate. Default: 0 for current.
 MiniMisc.use_nested_comments = function(buf_id)
   buf_id = buf_id or 0
@@ -392,9 +488,9 @@ end
 --- needing to zoom into one to see more of the code from that buffer. Call it
 --- again (without arguments) to zoom out.
 ---
----@param buf_id number Buffer identifier (see |bufnr()|) to be zoomed.
+---@param buf_id number|nil Buffer identifier (see |bufnr()|) to be zoomed.
 ---   Default: 0 for current.
----@param config table Optional config for window (as for |nvim_open_win()|).
+---@param config table|nil Optional config for window (as for |nvim_open_win()|).
 MiniMisc.zoom = function(buf_id, config)
   if H.zoom_winid and vim.api.nvim_win_is_valid(H.zoom_winid) then
     vim.api.nvim_win_close(H.zoom_winid, true)
@@ -405,6 +501,7 @@ MiniMisc.zoom = function(buf_id, config)
     local default_config = { relative = 'editor', row = 0, col = 0, width = 1000, height = 1000 }
     config = vim.tbl_deep_extend('force', default_config, config or {})
     H.zoom_winid = vim.api.nvim_open_win(buf_id, true, config)
+    vim.cmd('setlocal winblend=0')
     vim.cmd('normal! zz')
   end
 end

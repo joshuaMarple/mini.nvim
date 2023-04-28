@@ -4,7 +4,7 @@
 [![GitHub license](https://badgen.net/github/license/echasnovski/mini.nvim)](https://github.com/echasnovski/mini.nvim/blob/main/LICENSE)
 <!-- badges: end -->
 
-### Fast and familiar per-line commenting
+### Comment lines
 
 See more details in [Features](#features) and [help file](../doc/mini-comment.txt).
 
@@ -137,6 +137,18 @@ Here are code snippets for some common installation methods (use only one):
 ```lua
 -- No need to copy this inside `setup()`. Will be used automatically.
 {
+  -- Options which control module behavior
+  options = {
+    -- Whether to ignore blank lines
+    ignore_blank_line = false,
+
+    -- Whether to recognize as comment only lines without indent
+    start_of_line = false,
+
+    -- Whether to ensure single space pad for comment parts
+    pad_comment_parts = true,
+  },
+
   -- Module mappings. Use `''` (empty string) to disable one.
   mappings = {
     -- Toggle comment (like `gcip` - comment inner paragraph) for both
@@ -149,6 +161,7 @@ Here are code snippets for some common installation methods (use only one):
     -- Define 'comment' textobject (like `dgc` - delete whole comment block)
     textobject = 'gc',
   },
+
   -- Hook functions to be executed at certain stage of commenting
   hooks = {
     -- Before successful commenting. Does nothing by default.

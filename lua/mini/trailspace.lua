@@ -1,12 +1,16 @@
--- MIT License Copyright (c) 2021 Evgeni Chasnovski
-
--- Documentation ==============================================================
---- Work with trailing whitespace
+--- *mini.trailspace* Trailspace (highlight and remove)
+--- *MiniTrailspace*
+---
+--- MIT License Copyright (c) 2021 Evgeni Chasnovski
+---
+--- ==============================================================================
 ---
 --- Features:
 --- - Highlighting is done only in modifiable buffer by default, only in Normal
 ---   mode, and stops in Insert mode and when leaving window.
+---
 --- - Trim all trailing whitespace with |MiniTrailspace.trim()|.
+---
 --- - Trim all trailing empty lines with |MiniTrailspace.trim_last_lines()|.
 ---
 --- # Setup~
@@ -30,15 +34,13 @@
 ---
 --- # Disabling~
 ---
---- To disable, set `g:minitrailspace_disable` (globally) or
---- `b:minitrailspace_disable` (for a buffer) to `v:true`. Considering high
+--- To disable, set `vim.g.minitrailspace_disable` (globally) or
+--- `vim.b.minitrailspace_disable` (for a buffer) to `true`. Considering high
 --- number of different scenarios and customization intentions, writing exact
 --- rules for disabling module's functionality is left to user. See
 --- |mini.nvim-disabling-recipes| for common recipes. Note: after disabling
 --- there might be highlighting left; it will be removed after next
 --- highlighting update (see |events| and `MiniTrailspace` |augroup|).
----@tag mini.trailspace
----@tag MiniTrailspace
 
 -- Module definition ==========================================================
 local MiniTrailspace = {}
@@ -46,10 +48,19 @@ local H = {}
 
 --- Module setup
 ---
----@param config table Module config table. See |MiniTrailspace.config|.
+---@param config table|nil Module config table. See |MiniTrailspace.config|.
 ---
 ---@usage `require('mini.trailspace').setup({})` (replace `{}` with your `config` table)
 MiniTrailspace.setup = function(config)
+  -- TODO: Remove after Neovim<=0.6 support is dropped
+  if vim.fn.has('nvim-0.7') == 0 then
+    vim.notify(
+      '(mini.trailspace) Neovim<0.7 is soft deprecated (module works but not supported).'
+        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
+        .. ' Please update your Neovim version.'
+    )
+  end
+
   -- Export module
   _G.MiniTrailspace = MiniTrailspace
 

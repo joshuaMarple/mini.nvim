@@ -1,10 +1,98 @@
-# Version 0.6.0.9000
+# Version 0.8.0.9000
+
+# mini.base16
+
+- FEATURE: Add new integrations:
+    - Lsp semantic tokens.
+    - 'folke/lazy.nvim'.
+    - 'folke/noice.nvim'.
+    - 'kevinhwang91/nvim-ufo'.
+- BREAKING FEATURE: Stop supporting archived 'p00f/nvim-ts-rainbow' in favor of 'HiPhish/nvim-ts-rainbow2'.
+
+# mini.basics
+
+- Add dot-repeat support for adding empty lines (`go` and `gO` mappings).
+
+# mini.colors
+
+Introduction of a new module.
+
+
+# Version 0.8.0
+
+- Add and implement design principle for silencing module by setting `config.silent = true`. It is now present in modules capable of showing non-error feedback:
+    - mini.ai
+    - mini.align
+    - mini.basics
+    - mini.bufremove
+    - mini.doc
+    - mini.jump
+    - mini.jump2d
+    - mini.starter
+    - mini.surround
+    - mini.test
+
+## mini.bracketed
+
+Introduction of a new module.
+
+## mini.comment
+
+- FEATURE: Add `options.start_of_line` option which controls whether to recognize as comment only lines without indent.
+- FEATURE: Add `options.ignore_blank_line` option which controls whether to ignore blank lines.
+- FEATURE: Add `options.pad_comment_parts` option which controls whether to ensure single space pad for comment leaders.
+
+## mini.doc
+
+- FEATURE: Add `config.hooks.write_pre` hook to be executed before writing to a file.
+
+## mini.indentscope
+
+- FEATURE: Add `MiniIndentscopeSymbolOff` highlight group to be used if scope's indent is not multiple of 'shiftwidth'.
+- FEATURE: Add `draw.priority` option to control priority of scope line draw.
+
+## mini.jump2d
+
+- FEATURE: Add `view.n_steps_ahead` option which controls how many steps ahead to show. Appearance is controlled by new `MiniJump2dSpotAhead` highlight group.
+- FEATURE: Add `view.dim` option which controls whether to dim lines with at least one jump spot. Appearance is controlled by new `MiniJump2dDim` highlight group.
+- FEATURE: Add `MiniJump2dSpotUnique` highlight group to be used for spots with unique label for next step.
+
+## mini.pairs
+
+- FEATURE: Both `MiniPairs.br()` and `MiniPairs.cr()` can now take a key which will be used instead of default `<BS>` and `<CR>`.
+
+## mini.sessions
+
+- FEATURE: `setup()` now creates global directory at path `config.directory` if it doesn't exist.
+- All actions now keep list of detected sessions up to date.
+
+## mini.splitjoin
+
+Introduction of a new module.
+
+## mini.surround
+
+- FEATURE: Add `respect_selection_type` option which, when enabled, makes adding and deleting surrounding respect selection type:
+    - Linewise adding places surrounding parts on separate lines while indenting surrounded lines once.
+    - Deleting surrounding which looks like a result of linewise adding will act to revert it: delete lines with surrounding parts and dedent surrounded lines once.
+    - Blockwise adding places surrounding parts on whole edges, not only start and end of selection.
+
+
+# Version 0.7.0
 
 - Start dual distribution. Every module is now distributed both as part of 'mini.nvim' library and as standalone plugin (in separate git repository).
+
+## mini.ai
+
+- BREAKING FEATURE: In `MiniAi.gen_spec.argument()` option `separators` (plural; array of characters) is soft deprecated in favor of `separator` (singular; Lua pattern) option.
 
 ## mini.animate
 
 Introduction of new module.
+
+## mini.basics
+
+Introduction of a new module.
 
 ## mini.completion
 
@@ -19,10 +107,12 @@ Introduction of new module.
 ## mini.misc
 
 - FEATURE: Add `MiniMisc.setup_auto_root()` and `MiniMisc.find_root()` for root finding functionality. NOTE: requires Neovim>=0.8.
+- FEATURE: Add `MiniMisc.setup_restore_cursor()` for automatically restoring latest cursor position on file reopen. By @cryptomilk, PR #198.
 
 ## mini.move
 
 Introduction of new module.
+
 
 # Version 0.6.0
 

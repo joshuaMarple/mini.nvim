@@ -1,10 +1,13 @@
--- MIT License Copyright (c) 2022 Evgeni Chasnovski
-
--- Documentation ==============================================================
---- Align text interactively (with or without instant preview). Allows rich and
---- flexible customization of both alignment rules and user interaction. Works
---- with charwise, linewise, and blockwise selections in both Normal mode (on
---- textobject/motion; with dot-repeat) and Visual mode.
+--- *mini.align* Align text interactively
+--- *MiniAlign*
+---
+--- MIT License Copyright (c) 2022 Evgeni Chasnovski
+---
+--- ==============================================================================
+---
+--- Rich and flexible customization of both alignment rules and user interaction.
+--- Works with charwise, linewise, and blockwise selections in both Normal mode
+--- (on textobject/motion; with dot-repeat) and Visual mode.
 ---
 --- Features:
 --- - Alignment is done in three main steps:
@@ -14,6 +17,7 @@
 ---   Each main step can be preceded by other steps (pre-steps) to achieve
 ---   highly customizable outcome. See `steps` value in |MiniAlign.config|. For
 ---   more details, see |MiniAlign-glossary| and |MiniAlign-algorithm|.
+---
 --- - User can control alignment interactively by pressing customizable modifiers
 ---   (single keys representing how alignment steps and/or options should change).
 ---   Some of default modifiers:
@@ -28,9 +32,11 @@
 ---     - Press `t` to trim whitespace from parts.
 ---     - Press `<BS>` (backspace) to delete some last pre-step.
 ---   For more details, see |MiniAlign-modifiers-builtin| and |MiniAlign-examples|.
+---
 --- - Alignment can be done with instant preview (result is updated after each
 ---   modifier) or without it (result is shown and accepted after non-default
 ---   split pattern is set).
+---
 --- - Every user interaction is accompanied with helper status message showing
 ---   relevant information about current alignment process.
 ---
@@ -45,6 +51,8 @@
 --- You can override runtime config settings (like `config.modifiers`) locally
 --- to buffer inside `vim.b.minialign_config` which should have same structure
 --- as `MiniAlign.config`. See |mini.nvim-buffer-local-config| for more details.
+---
+--- To stop module from showing non-error feedback, set `config.silent = true`.
 ---
 --- # Comparisons~
 ---
@@ -80,13 +88,11 @@
 ---
 --- # Disabling~
 ---
---- To disable, set `g:minialign_disable` (globally) or `b:minialign_disable`
---- (for a buffer) to `v:true`. Considering high number of different scenarios
+--- To disable, set `vim.g.minialign_disable` (globally) or `vim.b.minialign_disable`
+--- (for a buffer) to `true`. Considering high number of different scenarios
 --- and customization intentions, writing exact rules for disabling module's
 --- functionality is left to user. See |mini.nvim-disabling-recipes| for common
 --- recipes.
----@tag mini.align
----@tag MiniAlign
 
 --- Glossary
 ---
@@ -397,7 +403,7 @@
 ---
 ---@tag MiniAlign-examples
 
----@alias __with_preview boolean|nil Whether to align with live preview.
+---@alias __align_with_preview boolean|nil Whether to align with live preview.
 
 -- Module definition ==========================================================
 local MiniAlign = {}
@@ -409,6 +415,15 @@ local H = {}
 ---
 ---@usage `require('mini.align').setup({})` (replace `{}` with your `config` table)
 MiniAlign.setup = function(config)
+  -- TODO: Remove after Neovim<=0.6 support is dropped
+  if vim.fn.has('nvim-0.7') == 0 then
+    vim.notify(
+      '(mini.align) Neovim<0.7 is soft deprecated (module works but not supported).'
+        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
+        .. ' Please update your Neovim version.'
+    )
+  end
+
   -- Export module
   _G.MiniAlign = MiniAlign
 
@@ -628,6 +643,9 @@ MiniAlign.config = {
     pre_merge = {},
     merge = nil,
   },
+
+  -- Whether to disable showing non-error feedback
+  silent = false,
 }
 --minidoc_afterlines_end
 
@@ -756,7 +774,7 @@ MiniAlign.align_user = function(mode)
       opts.split_pattern = vim.pesc(id)
     else
       -- Modifier should change input `steps` table in place
-      local ok, out = pcall(modifiers[id], steps, opts)
+      local ok, out = pcall(mod, steps, opts)
       if not ok then
         -- Force message to appear for 500ms because it might be overridden by
         -- helper status message
@@ -787,7 +805,7 @@ end
 ---
 --- Used in Normal mode mapping. No need to use it directly.
 ---
----@param with_preview __with_preview
+---@param with_preview __align_with_preview
 MiniAlign.action_normal = function(with_preview)
   if H.is_disabled() then return end
 
@@ -802,7 +820,7 @@ end
 ---
 --- Used in Visual mode mapping. No need to use it directly.
 ---
----@param with_preview __with_preview
+---@param with_preview __align_with_preview
 MiniAlign.action_visual = function(with_preview)
   if H.is_disabled() then return end
 
@@ -1157,7 +1175,7 @@ MiniAlign.gen_step.default_merge = function() return MiniAlign.new_step('merge',
 ---
 ---@param expr string Lua expression as a string which will be used as predicate.
 ---
----@return table A step named "filter" and with appropriate callable action.
+---@return table|nil A step named "filter" and with appropriate callable action.
 MiniAlign.gen_step.filter = function(expr)
   local action = H.make_filter_action(expr)
   if action == nil then return end
@@ -1172,7 +1190,7 @@ end
 ---@param patterns table Array of patterns to be added to
 ---   `split_exclude_patterns` as is. Default: `{ [[".-"]] }` (excludes strings
 ---   for most cases).
----@param exclude_comment boolean Whether to add comment pattern to
+---@param exclude_comment boolean|nil Whether to add comment pattern to
 ---   `split_exclude_patterns`. Comment pattern is derived from 'commentstring'
 ---   option. Default: `true`.
 ---
@@ -1234,9 +1252,9 @@ end
 --- Output calls `trim()` method of parts (see |MiniAlign.as_parts()|) with
 --- supplied `direction` and `indent` arguments.
 ---
----@param direction string Which sides to trim whitespace. One of "both"
+---@param direction string|nil Which sides to trim whitespace. One of "both"
 ---   (default), "left", "right", "none".
----@param indent string What to do with possible indent (left whitespace of first
+---@param indent string|nil What to do with possible indent (left whitespace of first
 ---   string in a row). One of "keep" (default), "low", "high", "remove".
 ---
 ---@return table A step named "trim" and with appropriate callable action.
@@ -1318,6 +1336,7 @@ H.setup_config = function(config)
     modifiers = { config.modifiers, H.is_valid_modifiers },
     steps = { config.steps, H.is_valid_steps },
     options = { config.options, 'table' },
+    silent = { config.silent, 'boolean' },
   })
 
   vim.validate({
@@ -1914,6 +1933,8 @@ end
 
 -- Utilities ------------------------------------------------------------------
 H.echo = function(msg, add_to_history)
+  if H.get_config().silent then return end
+
   -- Construct message chunks
   msg = type(msg) == 'string' and { { msg } } or msg
   table.insert(msg, 1, { '(mini.align) ', 'WarningMsg' })

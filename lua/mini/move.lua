@@ -1,7 +1,9 @@
--- MIT License Copyright (c) 2023 Evgeni Chasnovski
-
--- Documentation ==============================================================
---- Move any selection in any direction
+--- *mini.move* Move any selection in any direction
+--- *MiniMove*
+---
+--- MIT License Copyright (c) 2023 Evgeni Chasnovski
+---
+--- ==============================================================================
 ---
 --- Features:
 --- - Works in two modes:
@@ -14,11 +16,15 @@
 ---         - Vertical movement gets reindented with |=|.
 ---         - Horizontal movement is improved indent/dedent with |>| / |<|.
 ---         - Cursor moves along with selection.
+---
 --- - Provides both mappings and Lua functions for motions. See
 ---   |MiniMove.move_selection()| and |MiniMove.move_line()|.
+---
 --- - Respects |v:count|. Movement mappings can be preceded by a number which
 ---   multiplies command effect.
+---
 --- - All consecutive moves (regardless of direction) can be undone by a single |u|.
+---
 --- - Respects preferred column for vertical movement. It will vertically move
 ---   selection as how cursor is moving (not strictly vertically if target
 ---   column is not present in target line).
@@ -57,16 +63,14 @@
 ---
 --- # Disabling~
 ---
---- To disable, set `g:minimove_disable` (globally) or `b:minimove_disable`
---- (for a buffer) to `v:true`. Considering high number of different scenarios
+--- To disable, set `vim.g.minimove_disable` (globally) or `vim.b.minimove_disable`
+--- (for a buffer) to `true`. Considering high number of different scenarios
 --- and customization intentions, writing exact rules for disabling module's
 --- functionality is left to user. See |mini.nvim-disabling-recipes| for common
 --- recipes.
----@tag mini.move
----@tag MiniMove
 
 ---@alias __move_direction string One of "left", "down", "up", "right".
----@alias __move_opts table Options. Same structure as `options` in |MiniMove.config|
+---@alias __move_opts table|nil Options. Same structure as `options` in |MiniMove.config|
 ---   (with its values as defaults) plus these allowed extra fields:
 ---   - <n_times> (number) - number of times to try to make a move.
 ---     Default: |v:count1|.
@@ -83,6 +87,15 @@ local H = {}
 ---
 ---@usage `require('mini.move').setup({})` (replace `{}` with your `config` table)
 MiniMove.setup = function(config)
+  -- TODO: Remove after Neovim<=0.6 support is dropped
+  if vim.fn.has('nvim-0.7') == 0 then
+    vim.notify(
+      '(mini.move) Neovim<0.7 is soft deprecated (module works but not supported).'
+        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
+        .. ' Please update your Neovim version.'
+    )
+  end
+
   -- Export module
   _G.MiniMove = MiniMove
 
@@ -190,8 +203,7 @@ MiniMove.move_selection = function(direction, opts)
   if not is_moving then H.curswant = nil end
 
   -- Allow undo of consecutive moves at once (direction doesn't matter)
-  local normal_command = (is_moving and 'undojoin | ' or '') .. 'silent keepjumps normal! '
-  local cmd = function(x) vim.cmd(normal_command .. x) end
+  local cmd = H.make_cmd_normal(is_moving)
 
   -- Treat horizontal linewise movement specially
   if is_linewise and dir_type == 'hori' then
@@ -309,8 +321,7 @@ MiniMove.move_line = function(direction, opts)
   local is_moving = vim.deep_equal(H.state, H.get_move_state())
 
   -- Allow undo of consecutive moves at once (direction doesn't matter)
-  local normal_command = (is_moving and 'undojoin | ' or '') .. 'silent keepjumps normal! '
-  local cmd = function(x) vim.cmd(normal_command .. x) end
+  local cmd = H.make_cmd_normal(is_moving)
 
   -- Cache useful data because it will be reset when executing commands
   local n_times = opts.n_times or vim.v.count1
@@ -443,6 +454,27 @@ H.map = function(mode, key, rhs, opts)
   if vim.fn.has('nvim-0.7') == 0 then opts.desc = nil end
 
   vim.api.nvim_set_keymap(mode, key, rhs, opts)
+end
+
+H.make_cmd_normal = function(include_undojoin)
+  local normal_command = (include_undojoin and 'undojoin | ' or '') .. 'silent keepjumps normal! '
+
+  return function(x)
+    -- Caching and restoring data on every command is not necessary but leads
+    -- to a nicer implementation
+
+    -- Disable 'mini.bracketed' to avoid unwanted entries to its yank history
+    local cache_minibracketed_disable = vim.b.minibracketed_disable
+    local cache_unnamed_register = vim.fn.getreg('"')
+
+    -- Don't track possible put commands into yank history
+    vim.b.minibracketed_disable = true
+
+    vim.cmd(normal_command .. x)
+
+    vim.b.minibracketed_disable = cache_minibracketed_disable
+    vim.fn.setreg('"', cache_unnamed_register)
+  end
 end
 
 H.get_move_state = function()

@@ -738,15 +738,23 @@ end
 
 T['move_selection()']['has no side effects'] = function()
   set_lines({ 'abXcd' })
-  set_cursor(1, 0)
 
-  -- Shouldn't modify used `z` register
+  -- Shouldn't modify used `z` or unnamed registers
+  set_cursor(1, 0)
   type_keys('"zyl')
   eq(child.fn.getreg('z'), 'a')
+
+  set_cursor(1, 1)
+  type_keys('yl')
+  eq(child.fn.getreg('"'), 'b')
 
   -- Shouldn't modify 'virtualedit'
   child.o.virtualedit = 'block,insert'
 
+  -- Shouldn't affect yank history from 'mini.bracketed'
+  child.cmd('au TextYankPost * lua if not vim.b.minibracketed_disable then _G.been_here = true end')
+
+  -- Perform move
   set_cursor(1, 2)
   type_keys('v')
   move('right')
@@ -754,7 +762,10 @@ T['move_selection()']['has no side effects'] = function()
 
   -- Check
   eq(child.fn.getreg('z'), 'a')
+  eq(child.fn.getreg('"'), 'b')
   eq(child.o.virtualedit, 'block,insert')
+  eq(child.lua_get('_G.been_here'), vim.NIL)
+  eq(child.lua_get('vim.b.minibracketed_disable'), vim.NIL)
 end
 
 T['move_selection()']['works with `virtualedit=all`'] = function()
@@ -1052,17 +1063,29 @@ end
 
 T['move_line()']['has no side effects'] = function()
   set_lines({ 'aaa', 'bbb' })
-  set_cursor(1, 0)
 
-  -- Shouldn't modify used `z` register
+  -- Shouldn't modify used `z` and unnamed registers
+  set_cursor(1, 0)
   type_keys('"zyl')
   eq(child.fn.getreg('z'), 'a')
 
+  set_cursor(2, 0)
+  type_keys('yl')
+  eq(child.fn.getreg('"'), 'b')
+
+  -- Shouldn't affect yank history from 'mini.bracketed'
+  child.cmd('au TextYankPost * lua if not vim.b.minibracketed_disable then _G.been_here = true end')
+
+  -- Perform move
+  set_cursor(1, 0)
   move_line('down')
   validate_line_state({ 'bbb', 'aaa' }, { 2, 0 })
 
   -- Check
   eq(child.fn.getreg('z'), 'a')
+  eq(child.fn.getreg('"'), 'b')
+  eq(child.lua_get('_G.been_here'), vim.NIL)
+  eq(child.lua_get('vim.b.minibracketed_disable'), vim.NIL)
 end
 
 T['move_line()']['works silently'] = function()

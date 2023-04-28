@@ -1,22 +1,26 @@
+*mini.doc* Generate Neovim help files
+*MiniDoc*
+
+MIT License Copyright (c) 2022 Evgeni Chasnovski
+
 ==============================================================================
-------------------------------------------------------------------------------
-                                                                      *mini.doc*
-                                                                       *MiniDoc*
-Generation of help files from EmmyLua-like annotations
 
 Key design ideas:
 - Keep documentation next to code by writing EmmyLua-like annotation
   comments. They will be parsed as is, so formatting should follow built-in
   guide in |help-writing|. However, custom hooks are allowed at many
   generation stages for more granular management of output help file.
+
 - Generation is done by processing a set of ordered files line by line.
   Each line can either be considered as a part of documentation block (if
   it matches certain configurable pattern) or not (considered to be an
   "afterline" of documentation block). See |MiniDoc.generate()| for more
   details.
+
 - Processing is done by using nested data structures (section, block, file,
   doc) describing certain parts of help file. See |MiniDoc-data-structures|
   for more details.
+
 - Project specific script can be written as plain Lua file with
   configuratble path. See |MiniDoc.generate()| for more details.
 
@@ -37,6 +41,8 @@ See |MiniDoc.config| for available config settings.
 You can override runtime config settings locally to buffer inside
 `vim.b.minidoc_config` which should have same structure as `MiniDoc.config`.
 See |mini.nvim-buffer-local-config| for more details.
+
+To stop module from showing non-error feedback, set `config.silent = true`.
 
 # Tips~
 
@@ -64,14 +70,6 @@ See |mini.nvim-buffer-local-config| for more details.
     - It takes more care about automating output formatting (like auto
       indentation and line width fit). This plugin leans more to manual
       formatting with option to supply customized post-processing hooks.
-
-# Disabling~
-
-To disable, set `g:minidoc_disable` (globally) or `b:minidoc_disable` (for
-a buffer) to `v:true`. Considering high number of different scenarios and
-customization intentions, writing exact rules for disabling module's
-functionality is left to user. See |mini.nvim-disabling-recipes| for common
-recipes.
 
 ------------------------------------------------------------------------------
                                                        *MiniDoc-data-structures*
@@ -145,7 +143,7 @@ Description of `info` fields per structure type:
 Module setup
 
 Parameters~
-{config} `(table)` Module config table. See |MiniDoc.config|.
+{config} `(table|nil)` Module config table. See |MiniDoc.config|.
 
 Usage~
 `require('mini.doc').setup({})` (replace `{}` with your `config` table)
@@ -208,13 +206,19 @@ Default values:
       -- Applied to doc after all previous steps
       doc = --<function: adds modeline>,
 
-      -- Applied to after output help file is written. Takes doc as argument.
+      -- Applied before output file is written. Takes lines array as argument.
+      write_pre = --<function: currently returns its input>,
+
+      -- Applied after output help file is written. Takes doc as argument.
       write_post = --<function: various convenience actions>,
     },
 
     -- Path (relative to current directory) to script which handles project
     -- specific help file generation (like custom input files, hooks, etc.).
     script_path = 'scripts/minidoc.lua',
+
+    -- Whether to disable showing non-error feedback
+    silent = false,
   }
 <
 # Notes ~
@@ -331,8 +335,11 @@ Generate help file
       adding any helpfile-related data (maybe like table of contents).
 - Collect all strings from sections in depth-first fashion (equivalent to
   nested "for all files -> for all blocks -> for all sections -> for all
-  strings -> add string to output") and write them to output file. Strings
-  can have `\n` character indicating start of new line.
+  strings -> add string to output"). Strings can have `\n` character
+  indicating start of new line.
+- Modify collected strings with `MiniDoc.config.write_pre`. Takes strings
+  from previous step as input and should return array of strings.
+- Write modified strings to output file.
 - Execute `MiniDoc.config.write_post` hook. This is useful for showing some
   feedback and making actions involving newly updated help file (like
   generate tags, etc.).
@@ -351,14 +358,14 @@ output files with eventual call to `require('mini.doc').generate()` (with
 or without arguments).
 
 Parameters~
-{input} `(table)` Array of file paths which will be processed in supplied
+{input} `(table|nil)` Array of file paths which will be processed in supplied
   order. Default: all '.lua' files from current directory following by all
   such files in these subdirectories: 'lua/', 'after/', 'colors/'. Note:
   any 'init.lua' file is placed before other files from the same directory.
-{output} `(string)` Path for output help file. Default:
+{output} `(string|nil)` Path for output help file. Default:
   `doc/<current_directory>.txt` (designed to be used for generating help
   file for plugin).
-{config} `(table)` Configuration overriding parts of |MiniDoc.config|.
+{config} `(table|nil)` Configuration overriding parts of |MiniDoc.config|.
 
 Return~
 `(table)` Document structure which was generated and used for output
@@ -419,8 +426,8 @@ Parameters~
   converted to code.
 
 Return~
-`(string)` Single string (using `\n` to separate lines) describing
-  afterlines as code block in help file.
+`(string|nil)` Single string (using `\n` to separate lines) describing
+  afterlines as code block in help file. If `nil`, input is not valid.
 
 
  vim:tw=78:ts=8:noet:ft=help:norl:

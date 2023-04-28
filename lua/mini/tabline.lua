@@ -1,18 +1,25 @@
--- MIT License Copyright (c) 2021 Evgeni Chasnovski
-
--- Documentation ==============================================================
---- Minimal and fast tabline showing listed buffers. General idea: show all
---- listed buffers in readable way with minimal total width. Also allow showing
---- extra information section in case of multiple vim tabpages.
+--- *mini.tabline* Tabline
+--- *MiniTabline*
+---
+--- MIT License Copyright (c) 2021 Evgeni Chasnovski
+---
+--- ==============================================================================
+---
+--- Key idea: show all listed buffers in readable way with minimal total width.
+--- Also allow showing extra information section in case of multiple vim tabpages.
 ---
 --- Features:
 --- - Buffers are listed in the order of their identifier (see |bufnr()|).
+---
 --- - Different highlight groups for "states" of buffer affecting 'buffer tabs'.
+---
 --- - Buffer names are made unique by extending paths to files or appending
 ---   unique identifier to buffers without name.
+---
 --- - Current buffer is displayed "optimally centered" (in center of screen
 ---   while maximizing the total number of buffers shown) when there are many
 ---   buffers open.
+---
 --- - 'Buffer tabs' are clickable if Neovim allows it.
 ---
 --- What it doesn't do:
@@ -53,15 +60,13 @@
 ---
 --- # Disabling~
 ---
---- To disable (show empty tabline), set `g:minitabline_disable` (globally) or
---- `b:minitabline_disable` (for a buffer) to `v:true`. Considering high number
+--- To disable (show empty tabline), set `vim.g.minitabline_disable` (globally) or
+--- `vim.b.minitabline_disable` (for a buffer) to `true`. Considering high number
 --- of different scenarios and customization intentions, writing exact rules
 --- for disabling module's functionality is left to user. See
 --- |mini.nvim-disabling-recipes| for common recipes. Note: after disabling,
 --- tabline is not updated right away, but rather after dedicated event (see
 --- |events| and `MiniTabline` |augroup|).
----@tag mini.tabline
----@tag MiniTabline
 
 -- Module definition ==========================================================
 local MiniTabline = {}
@@ -69,10 +74,19 @@ local H = {}
 
 --- Module setup
 ---
----@param config table Module config table. See |MiniTabline.config|.
+---@param config table|nil Module config table. See |MiniTabline.config|.
 ---
 ---@usage `require('mini.tabline').setup({})` (replace `{}` with your `config` table)
 MiniTabline.setup = function(config)
+  -- TODO: Remove after Neovim<=0.6 support is dropped
+  if vim.fn.has('nvim-0.7') == 0 then
+    vim.notify(
+      '(mini.tabline) Neovim<0.7 is soft deprecated (module works but not supported).'
+        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
+        .. ' Please update your Neovim version.'
+    )
+  end
+
   -- Export module
   _G.MiniTabline = MiniTabline
 
@@ -471,9 +485,6 @@ H.concat_tabs = function()
   -- Add tabpage section
   local position = H.get_config().tabpage_section
   if H.tabpage_section ~= '' then
-    if not vim.tbl_contains({ 'none', 'left', 'right' }, position) then
-      H.message([[`config.tabpage_section` should be one of 'left', 'right', 'none'.]])
-    end
     if position == 'left' then res = ('%%#MiniTablineTabpagesection#%s%s'):format(H.tabpage_section, res) end
     if position == 'right' then
       -- Use `%=` to make it stick to right hand side
@@ -483,18 +494,5 @@ H.concat_tabs = function()
 
   return res
 end
-
--- Utilities ------------------------------------------------------------------
-H.echo = function(msg, is_important)
-  -- Construct message chunks
-  msg = type(msg) == 'string' and { { msg } } or msg
-  table.insert(msg, 1, { '(mini.tabline) ', 'WarningMsg' })
-
-  -- Echo. Force redraw to ensure that it is effective (`:h echo-redraw`)
-  vim.cmd([[echo '' | redraw]])
-  vim.api.nvim_echo(msg, is_important, {})
-end
-
-H.message = function(msg) H.echo(msg, true) end
 
 return MiniTabline

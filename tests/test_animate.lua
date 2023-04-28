@@ -205,6 +205,11 @@ T['setup()']['validates `config` argument'] = function()
   expect_config_error({ close = { winblend = 'a' } }, 'close.winblend', 'callable')
 end
 
+T['setup()']['defines non-linked default highlighting on `ColorScheme`'] = function()
+  child.cmd('colorscheme blue')
+  expect.match(child.cmd_capture('hi MiniAnimateCursor'), 'gui=reverse,nocombine')
+end
+
 T['is_active()'] = new_set()
 
 local is_active = function(action_type) return child.lua_get('MiniAnimate.is_active(...)', { action_type }) end
@@ -1204,6 +1209,21 @@ T['Cursor']['works when cursor and/or marks are outside of line'] = function()
   end
 end
 
+T['Cursor']['works with tabs'] = function()
+  child.o.tabstop = 4
+  set_lines({ '\taa', '\tbb', 'cc' })
+  set_cursor(1, 4)
+
+  set_cursor(3, 0)
+  child.expect_screenshot()
+  -- Introduce lag for test stability
+  sleep(small_time)
+  for _ = 1, 5 do
+    sleep(step_time)
+    child.expect_screenshot()
+  end
+end
+
 T['Cursor']['works with horizontally scrolled window view'] = function()
   child.o.wrap = false
   type_keys('2zl')
@@ -1233,6 +1253,8 @@ T['Cursor']['does not stop if mark should be placed outside of range'] = functio
 end
 
 T['Cursor']['stops on buffer change'] = function()
+  if child.fn.has('nvim-0.10') == 0 then MiniTest.skip('Screenshots are generated for Neovim>=0.10.') end
+
   child.set_size(12, 24)
   child.o.winwidth = 1
   child.cmd('vertical botright new')
@@ -1565,6 +1587,74 @@ T['Scroll']['places cursor proportionally to scroll step'] = function()
   eq(get_cursor(), { 1, 2 })
 end
 
+T['Scroll']['correctly places cursor in presence of multibyte characters'] = function()
+  if child.lua_get('vim.fn.exists("*virtcol2col") == 0') then
+    MiniTest.skip('`vim.fn.virt2col()` is needed for this to work.')
+  end
+
+  local validate = function(topline_ref, cursor_ref)
+    eq(child.fn.line('w0'), topline_ref)
+    eq(get_cursor(), cursor_ref)
+  end
+
+  --stylua: ignore
+  set_lines({ 'аааа', '🬗🬗🬗🬗', 'ббб', '🬗🬗🬗', 'вввв', 'гггг', 'дддд', 'ееее' })
+  set_cursor(1, 6)
+
+  type_keys('3<C-e>')
+
+  validate(1, { 1, 6 })
+  -- Introduce lag for test stability
+  sleep(small_time)
+
+  sleep(step_time)
+  validate(2, { 2, 12 })
+
+  sleep(step_time)
+  validate(3, { 3, 4 })
+
+  sleep(step_time)
+  validate(4, { 4, 8 })
+
+  sleep(step_time)
+  validate(4, { 4, 8 })
+end
+
+T['Scroll']['correctly places cursor in presence of tabs'] = function()
+  if child.lua_get('vim.fn.exists("*virtcol2col") == 0') then
+    MiniTest.skip('`vim.fn.virt2col()` is needed for this to work.')
+  end
+
+  local validate = function(topline_ref, cursor_ref)
+    eq(child.fn.line('w0'), topline_ref)
+    eq(get_cursor(), cursor_ref)
+  end
+
+  set_lines({ '\t\ta', '\t\tb', '\t\tc', '\t\td', 'e' })
+  set_cursor(1, 2)
+
+  type_keys('4<C-e>')
+
+  validate(1, { 1, 2 })
+  -- Introduce lag for test stability
+  sleep(small_time)
+
+  sleep(step_time)
+  validate(2, { 2, 1 })
+
+  sleep(step_time)
+  validate(3, { 3, 1 })
+
+  sleep(step_time)
+  validate(4, { 4, 0 })
+
+  sleep(step_time)
+  validate(5, { 5, 0 })
+
+  sleep(step_time)
+  validate(5, { 5, 0 })
+end
+
 T['Scroll']['can place intermideate cursor outside of line'] = function()
   set_lines({ 'aaaa', 'a', '', '', '', '', '', 'a', 'aaaa' })
   set_cursor(1, 3)
@@ -1688,6 +1778,35 @@ T['Scroll']['does not automatically animate after buffer change'] = function()
   child.api.nvim_set_current_buf(init_buf_id)
 
   -- Should immediately show centered cursor line without animating it
+  child.expect_screenshot()
+  sleep(step_time + small_time)
+  child.expect_screenshot()
+end
+
+T['Scroll']["does not automatically animate result of 'incsearch'"] = function()
+  child.o.incsearch = true
+
+  child.set_size(10, 25)
+
+  -- Should work for search with `/`
+  type_keys('/', 'oo', '<CR>')
+  child.expect_screenshot()
+  sleep(step_time + 10)
+  -- Should be the same
+  child.expect_screenshot()
+
+  -- Should work for search with `?`
+  type_keys('?', 'aa', '<CR>')
+  child.expect_screenshot()
+  sleep(step_time + 10)
+  -- Should be the same
+  child.expect_screenshot()
+end
+
+T['Scroll']['handles mappings with <Cmd><CR>'] = function()
+  child.api.nvim_set_keymap('n', 'G', 'G<Cmd>lua _G.n = 0<CR>', {})
+
+  type_keys('G')
   child.expect_screenshot()
   sleep(step_time + small_time)
   child.expect_screenshot()

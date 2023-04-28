@@ -1,10 +1,12 @@
--- MIT License Copyright (c) 2021 Evgeni Chasnovski
-
--- Documentation ==============================================================
---- Fast and feature-rich surrounding. This is mostly a reimplementation of the
---- core features of 'machakann/vim-sandwich' with more on top (find
---- surrounding, highlight surrounding, flexible customization). Can be
---- configured to have experience similar to 'tpope/vim-surround'.
+--- *mini.surround* Surround actions
+--- *MiniSurround*
+---
+--- MIT License Copyright (c) 2021 Evgeni Chasnovski
+---
+--- ==============================================================================
+---
+--- Fast and feature-rich surrounding. Can be configured to have experience
+--- similar to 'tpope/vim-surround' (see |MiniSurround-vim-surround-config|).
 ---
 --- Features:
 --- - Actions (all of them are dot-repeatable out of the box and respect
@@ -15,13 +17,14 @@
 ---     - Find surrounding with `sf` or `sF` (move cursor right or left).
 ---     - Highlight surrounding with `sh`.
 ---     - Change number of neighbor lines with `sn` (see |MiniSurround-algorithm|).
+---
 --- - Surrounding is identified by a single character as both "input" (in
 ---   `delete` and `replace` start, `find`, and `highlight`) and "output" (in
 ---   `add` and `replace` end):
 ---     - 'f' - function call (string of alphanumeric symbols or '_' or '.'
 ---       followed by balanced '()'). In "input" finds function call, in
 ---       "output" prompts user to enter function name.
----     - 't' - tag. In "input" finds tab with same identifier, in "output"
+---     - 't' - tag. In "input" finds tag with same identifier, in "output"
 ---       prompts user to enter tag name.
 ---     - All symbols in brackets '()', '[]', '{}', '<>". In "input' represents
 ---       balanced brackets (open - with whitespace pad, close - without), in
@@ -29,8 +32,10 @@
 ---     - '?' - interactive. Prompts user to enter left and right parts.
 ---     - All other alphanumeric, punctuation, or space characters represent
 ---       surrounding with identical left and right parts.
+---
 --- - Configurable search methods to find not only covering but possibly next,
 ---   previous, or nearest surrounding. See more in |MiniSurround.config|.
+---
 --- - All actions involving finding surrounding (delete, replace, find,
 ---   highlight) can be used with suffix that changes search method to find
 ---   previous/last. See more in |MiniSurround.config|.
@@ -38,9 +43,11 @@
 --- Known issues which won't be resolved:
 --- - Search for surrounding is done using Lua patterns (regex-like approach).
 ---   So certain amount of false positives should be expected.
+---
 --- - When searching for "input" surrounding, there is no distinction if it is
 ---   inside string or comment. So in this case there will be not proper match
 ---   for a function call: 'f(a = ")", b = 1)'.
+---
 --- - Tags are searched using regex-like methods, so issues are inevitable.
 ---   Overall it is pretty good, but certain cases won't work. Like self-nested
 ---   tags won't match correctly on both ends: '<a><a></a></a>'.
@@ -52,12 +59,13 @@
 --- `MiniSurround` which you can use for scripting or manually (with
 --- `:lua MiniSurround.*`).
 ---
---- See |MiniSurround.config| for `config` structure and default values. It
---- also has example setup providing experience similar to 'tpope/vim-surround'.
+--- See |MiniSurround.config| for `config` structure and default values.
 ---
 --- You can override runtime config settings locally to buffer inside
 --- `vim.b.minisurround_config` which should have same structure as
 --- `MiniSurround.config`. See |mini.nvim-buffer-local-config| for more details.
+---
+--- To stop module from showing non-error feedback, set `config.silent = true`.
 ---
 --- # Example usage~
 ---
@@ -123,13 +131,11 @@
 ---
 --- # Disabling~
 ---
---- To disable, set `g:minisurround_disable` (globally) or
---- `b:minisurround_disable` (for a buffer) to `v:true`. Considering high
+--- To disable, set `vim.g.minisurround_disable` (globally) or
+--- `vim.b.minisurround_disable` (for a buffer) to `true`. Considering high
 --- number of different scenarios and customization intentions, writing exact
 --- rules for disabling module's functionality is left to user. See
 --- |mini.nvim-disabling-recipes| for common recipes.
----@tag mini.surround
----@tag MiniSurround
 
 --- Builtin surroundings~
 ---
@@ -413,10 +419,19 @@ local H = {}
 
 --- Module setup
 ---
----@param config table Module config table. See |MiniSurround.config|.
+---@param config table|nil Module config table. See |MiniSurround.config|.
 ---
 ---@usage `require('mini.surround').setup({})` (replace `{}` with your `config` table)
 MiniSurround.setup = function(config)
+  -- TODO: Remove after Neovim<=0.6 support is dropped
+  if vim.fn.has('nvim-0.7') == 0 then
+    vim.notify(
+      '(mini.surround) Neovim<0.7 is soft deprecated (module works but not supported).'
+        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
+        .. ' Please update your Neovim version.'
+    )
+  end
+
   -- Export module
   _G.MiniSurround = MiniSurround
 
@@ -434,7 +449,8 @@ end
 ---
 --- Default values:
 ---@eval return MiniDoc.afterlines_to_code(MiniDoc.current.eval_section)
----@text # Setup similar to 'tpope/vim-surround'~
+---@text                                               *MiniSurround-vim-surround-config*
+--- # Setup similar to 'tpope/vim-surround'~
 ---
 --- This module is primarily designed after 'machakann/vim-sandwich'. To get
 --- behavior closest to 'tpope/vim-surround' (but not identical), use this setup:
@@ -457,11 +473,11 @@ end
 ---   })
 ---
 ---   -- Remap adding surrounding to Visual mode selection
----   vim.api.nvim_del_keymap('x', 'ys')
----   vim.api.nvim_set_keymap('x', 'S', [[:<C-u>lua MiniSurround.add('visual')<CR>]], { noremap = true })
+---   vim.keymap.del('x', 'ys')
+---   vim.keymap.set('x', 'S', [[:<C-u>lua MiniSurround.add('visual')<CR>]], { silent = true })
 ---
 ---   -- Make special mapping for "add surrounding for line"
----   vim.api.nvim_set_keymap('n', 'yss', 'ys_', { noremap = false })
+---   vim.keymap.set('n', 'yss', 'ys_', { remap = true })
 --- <
 --- # Options~
 ---
@@ -516,7 +532,21 @@ end
 ---     },
 ---   }
 --- <
---- ## Search method~
+--- ## Respect selection type ~
+---
+--- Boolean option `config.respect_selection_type` controls whether to respect
+--- selection type when adding and deleting surrounding. When enabled:
+--- - Linewise adding places surroundings on separate lines while indenting
+---   surrounded lines ones.
+--- - Deleting surroundings which look like they were the result of linewise
+---   adding will act to revert it: delete lines with surroundings and dedent
+---   surrounded lines ones.
+--- - Blockwise adding places surroundings on whole edges, not only start and
+---   end of selection. Note: it doesn't really work outside of text and in
+---   presence of multibyte characters; and probably won't due to
+---   implementation difficulties.
+---
+--- ## Search method ~
 ---
 --- Value of `config.search_method` defines how best match search is done.
 --- Based on its value, one of the following matches will be selected:
@@ -602,11 +632,19 @@ MiniSurround.config = {
   -- Number of lines within which surrounding is searched
   n_lines = 20,
 
+  -- Whether to respect selection type:
+  -- - Place surroundings on separate lines in linewise mode.
+  -- - Place surroundings on each line in blockwise mode.
+  respect_selection_type = false,
+
   -- How to search for surrounding (first inside current line, then inside
   -- neighborhood). One of 'cover', 'cover_or_next', 'cover_or_prev',
   -- 'cover_or_nearest', 'next', 'prev', 'nearest'. For more details,
   -- see `:h MiniSurround.config`.
   search_method = 'cover',
+
+  -- Whether to disable showing non-error feedback
+  silent = false,
 }
 --minidoc_afterlines_end
 
@@ -617,7 +655,7 @@ MiniSurround.config = {
 --- directly, everything is setup in |MiniSurround.setup|.
 ---
 ---@param task string Name of surround task.
----@param cache table Task cache.
+---@param cache table|nil Task cache.
 MiniSurround.operator = function(task, cache)
   if H.is_disabled() then
     -- Using `<Esc>` helps to stop moving cursor caused by current
@@ -653,13 +691,56 @@ MiniSurround.add = function(mode)
   end
   if surr_info == nil then return '<Esc>' end
 
-  -- Add surrounding. Begin insert from right to not break column numbers
-  -- Insert after the right mark (`+ 1` is for that)
-  H.region_replace({ from = { line = marks.second.line, col = marks.second.col + 1 } }, surr_info.right)
-  H.region_replace({ from = marks.first }, surr_info.left)
+  -- Add surrounding.
+  -- Possibly deal with linewise and blockwise addition separately
+  local respect_selection_type = H.get_config().respect_selection_type
 
-  -- Set cursor to be on the right of left surrounding
-  H.set_cursor(marks.first.line, marks.first.col + surr_info.left:len())
+  if not respect_selection_type or marks.selection_type == 'charwise' then
+    -- Begin insert from right to not break column numbers
+    -- Insert after the right mark (`+ 1` is for that)
+    H.region_replace({ from = { line = marks.second.line, col = marks.second.col + 1 } }, surr_info.right)
+    H.region_replace({ from = marks.first }, surr_info.left)
+
+    -- Set cursor to be on the right of left surrounding
+    H.set_cursor(marks.first.line, marks.first.col + surr_info.left:len())
+
+    return
+  end
+
+  if marks.selection_type == 'linewise' then
+    local from_line, to_line = marks.first.line, marks.second.line
+
+    -- Save current range indent and indent surrounded lines
+    local init_indent = H.get_range_indent(from_line, to_line)
+    H.shift_indent('>', from_line, to_line)
+
+    -- Put cursor on the start of first surrounded line
+    H.set_cursor_nonblank(from_line)
+
+    -- Put surroundings on separate lines
+    vim.fn.append(to_line, init_indent .. surr_info.right)
+    vim.fn.append(from_line - 1, init_indent .. surr_info.left)
+
+    return
+  end
+
+  if marks.selection_type == 'blockwise' then
+    -- NOTE: this doesn't work with mix of multibyte and normal characters, as
+    -- well as outside of text lines.
+    local from_col, to_col = marks.first.col, marks.second.col
+    -- - Ensure that `to_col` is to the right of `from_col`. Can be not the
+    --   case if visual block was selected from "south-west" to "north-east".
+    from_col, to_col = math.min(from_col, to_col), math.max(from_col, to_col)
+
+    for i = marks.first.line, marks.second.line do
+      H.region_replace({ from = { line = i, col = to_col + 1 } }, surr_info.right)
+      H.region_replace({ from = { line = i, col = from_col } }, surr_info.left)
+    end
+
+    H.set_cursor(marks.first.line, from_col + surr_info.left:len())
+
+    return
+  end
 end
 
 --- Delete surrounding
@@ -677,6 +758,25 @@ MiniSurround.delete = function()
   -- Set cursor to be on the right of deleted left surrounding
   local from = surr.left.from
   H.set_cursor(from.line, from.col)
+
+  -- Possibly tweak deletion of linewise surrounding. Should act as reverse to
+  -- linewise addition.
+  if not H.get_config().respect_selection_type then return end
+
+  local from_line, to_line = surr.left.from.line, surr.right.from.line
+  local is_linewise_delete = from_line < to_line and H.is_line_blank(from_line) and H.is_line_blank(to_line)
+  if is_linewise_delete then
+    -- Dedent surrounded lines
+    H.shift_indent('<', from_line, to_line)
+
+    -- Place cursor on first surrounded line
+    H.set_cursor_nonblank(from_line + 1)
+
+    -- Delete blank lines left after deleting surroundings
+    local buf_id = vim.api.nvim_get_current_buf()
+    vim.fn.deletebufline(buf_id, to_line)
+    vim.fn.deletebufline(buf_id, from_line)
+  end
 end
 
 --- Replace surrounding
@@ -869,7 +969,7 @@ MiniSurround.gen_spec = { input = {}, output = {} }
 ---   (`[left.form; right.to]`) and inner (`(left.to; right.from)` both edges
 ---   exclusive, i.e. they won't be a part of surrounding) regions. Each value
 ---   should be a string capture starting with `'@'`.
----@param opts table Options. Possible values:
+---@param opts table|nil Options. Possible values:
 ---   - <use_nvim_treesitter> - whether to try to use 'nvim-treesitter' plugin
 ---     (if present) to do the query. It implements more advanced behavior at
 ---     cost of increased execution time. Provides more coherent experience if
@@ -1009,7 +1109,9 @@ H.setup_config = function(config)
     highlight_duration = { config.highlight_duration, 'number' },
     mappings = { config.mappings, 'table' },
     n_lines = { config.n_lines, 'number' },
+    respect_selection_type = { config.respect_selection_type, 'boolean' },
     search_method = { config.search_method, H.is_search_method },
+    silent = { config.silent, 'boolean' },
   })
 
   vim.validate({
@@ -1658,9 +1760,10 @@ H.get_marks_pos = function(mode)
   local pos1 = vim.api.nvim_buf_get_mark(0, mark1)
   local pos2 = vim.api.nvim_buf_get_mark(0, mark2)
 
+  local selection_type = H.get_selection_type(mode)
+
   -- Tweak position in linewise mode as marks are placed on the first column
-  local is_linewise = (mode == 'line') or (mode == 'visual' and vim.fn.visualmode() == 'V')
-  if is_linewise then
+  if selection_type == 'linewise' then
     -- Move start mark past the indent
     pos1[2] = vim.fn.indent(pos1[1])
     -- Move end mark to the last character (` - 2` here because `col()` returns
@@ -1697,11 +1800,23 @@ H.get_marks_pos = function(mode)
   return {
     first = { line = pos1[1], col = pos1[2] },
     second = { line = pos2[1], col = pos2[2] },
+    selection_type = selection_type,
   }
+end
+
+H.get_selection_type = function(mode)
+  if (mode == 'char') or (mode == 'visual' and vim.fn.visualmode() == 'v') then return 'charwise' end
+  if (mode == 'line') or (mode == 'visual' and vim.fn.visualmode() == 'V') then return 'linewise' end
+  if (mode == 'block') or (mode == 'visual' and vim.fn.visualmode() == '\22') then return 'blockwise' end
 end
 
 -- Work with cursor -----------------------------------------------------------
 H.set_cursor = function(line, col) vim.api.nvim_win_set_cursor(0, { line, col - 1 }) end
+
+H.set_cursor_nonblank = function(line)
+  H.set_cursor(line, 1)
+  vim.cmd('normal! ^')
+end
 
 H.compare_pos = function(pos1, pos2)
   if pos1.line < pos2.line then return '<' end
@@ -1854,6 +1969,31 @@ end
 
 H.region_is_empty = function(region) return region.to == nil end
 
+-- Work with text -------------------------------------------------------------
+H.get_range_indent = function(from_line, to_line)
+  local n_indent, indent = math.huge, nil
+
+  local lines = vim.api.nvim_buf_get_lines(0, from_line - 1, to_line, true)
+  local n_indent_cur, indent_cur
+  for _, l in ipairs(lines) do
+    _, n_indent_cur, indent_cur = l:find('^(%s*)')
+
+    -- Don't indent blank lines
+    if n_indent_cur < n_indent and n_indent_cur < l:len() then
+      n_indent, indent = n_indent_cur, indent_cur
+    end
+  end
+
+  return indent or ''
+end
+
+H.shift_indent = function(command, from_line, to_line)
+  if to_line < from_line then return end
+  vim.cmd('silent ' .. from_line .. ',' .. to_line .. command)
+end
+
+H.is_line_blank = function(line_num) return vim.fn.nextnonblank(line_num) ~= line_num end
+
 -- Work with Lua patterns -----------------------------------------------------
 H.extract_surr_spans = function(s, extract_pattern)
   local positions = { s:match(extract_pattern) }
@@ -1962,6 +2102,8 @@ end
 
 -- Utilities ------------------------------------------------------------------
 H.echo = function(msg, is_important)
+  if H.get_config().silent then return end
+
   -- Construct message chunks
   msg = type(msg) == 'string' and { { msg } } or msg
   table.insert(msg, 1, { '(mini.surround) ', 'WarningMsg' })

@@ -1,7 +1,9 @@
--- MIT License Copyright (c) 2022 Evgeni Chasnovski
-
--- Documentation ==============================================================
---- Window with buffer text overview, scrollbar, and highlights
+--- *mini.map* Window with buffer text overview
+--- *MiniMap*
+---
+--- MIT License Copyright (c) 2022 Evgeni Chasnovski
+---
+--- ==============================================================================
 ---
 --- Features:
 --- - Show and manage special floating window displaying automatically updated
@@ -132,13 +134,11 @@
 ---
 --- # Disabling~
 ---
---- To disable, set `g:minimap_disable` (globally) or `b:minimap_disable`
---- (for a buffer) to `v:true`. Considering high number of different scenarios
+--- To disable, set `vim.g.minimap_disable` (globally) or `vim.b.minimap_disable`
+--- (for a buffer) to `true`. Considering high number of different scenarios
 --- and customization intentions, writing exact rules for disabling module's
 --- functionality is left to user. See |mini.nvim-disabling-recipes| for common
 --- recipes.
----@tag mini.map
----@tag MiniMap
 
 --- # Mappings ~
 ---
@@ -169,7 +169,7 @@
 --- - Exit and enter Normal mode (if your Neovim version supports |ModeChanged|).
 ---@tag mini.map-usage
 
----@alias __opts table|nil Options used to define map configuration. Same structure
+---@alias __map_opts table|nil Options used to define map configuration. Same structure
 ---   as |MiniMap.config|. Will have effect until at least one tabpage has opened
 ---   map window. Default values are taken in the following order:
 ---   - From `opts` field of |MiniMap.current|.
@@ -188,6 +188,15 @@ local H = {}
 ---
 ---@usage `require('mini.map').setup({})` (replace `{}` with your `config` table)
 MiniMap.setup = function(config)
+  -- TODO: Remove after Neovim<=0.6 support is dropped
+  if vim.fn.has('nvim-0.7') == 0 then
+    vim.notify(
+      '(mini.map) Neovim<0.7 is soft deprecated (module works but not supported).'
+        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
+        .. ' Please update your Neovim version.'
+    )
+  end
+
   -- Export module
   _G.MiniMap = MiniMap
 
@@ -543,7 +552,7 @@ end
 ---   visual indicators) and map window.
 --- - Call |MiniMap.refresh()|.
 ---
----@param opts __opts
+---@param opts __map_opts
 MiniMap.open = function(opts)
   -- Early returns
   if H.is_disabled() then return end
@@ -593,7 +602,7 @@ end
 --- - Update current map configuration via `opts`.
 --- - Update parts of displayed content via `parts`.
 ---
----@param opts __opts
+---@param opts __map_opts
 ---@param parts table|nil Which parts to update. Recognised keys with boolean
 ---   values (all `true` by default):
 ---   - <integrations> - whether to update integration highlights.
@@ -638,7 +647,7 @@ end
 ---
 --- Open if not shown in current tabpage, close otherwise.
 ---
----@param opts table Input for |MiniMap.open()|.
+---@param opts table|nil Input for |MiniMap.open()|.
 MiniMap.toggle = function(opts)
   if H.is_window_open() then
     MiniMap.close()
@@ -662,11 +671,9 @@ end
 --- - Press `<Esc>` to go back to original position prior focusing on map window.
 ---   Equivalent to calling this function with `true` argument.
 ---
----@param use_previous_cursor boolean Whether to focus on source window at
+---@param use_previous_cursor boolean|nil Whether to focus on source window at
 ---   original cursor position (the one prior focusing on map window).
 MiniMap.toggle_focus = function(use_previous_cursor)
-  if use_previous_cursor == nil then use_previous_cursor = false end
-
   if not H.is_window_open() then return end
   local cur_win, map_win = vim.api.nvim_get_current_win(), H.get_current_map_win()
 

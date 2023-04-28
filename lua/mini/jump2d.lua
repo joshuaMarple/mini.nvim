@@ -1,15 +1,21 @@
--- MIT License Copyright (c) 2022 Evgeni Chasnovski
-
--- Documentation ==============================================================
+--- *mini.jump2d* Jump within visible lines
+--- *MiniJump2d*
+---
+--- MIT License Copyright (c) 2022 Evgeni Chasnovski
+---
+--- ==============================================================================
+---
 --- Jump within visible lines via iterative label filtering.
 ---
 --- Features:
 --- - Make jump by iterative filtering of possible, equally considered jump
 ---   spots until there is only one. Filtering is done by typing a label
 ---   character that is visualized at jump spot.
---- - Customizable:
+---
+--- - Customizable (see |MiniJump2d.config|):
 ---     - Way of computing possible jump spots with opinionated default.
 ---     - Characters used to label jump spots during iterative filtering.
+---     - Visual effects: how many steps ahead to show; dim lines with spots.
 ---     - Action hooks to be executed at certain events during jump.
 ---     - Allowed windows: current and/or not current.
 ---     - Allowed lines: whether to process blank or folded lines, lines
@@ -18,20 +24,26 @@
 ---     Example: user can configure to look for word starts only inside current
 ---     window at or after cursor line with 'j' and 'k' labels performing some
 ---     action after jump.
+---
 --- - Works in Visual and Operator-pending (with dot-repeat) modes.
+---
 --- - Preconfigured ways of computing jump spots (see |MiniJump2d.builtin_opts|).
+---
 --- - Works with multibyte characters.
 ---
 --- General overview of how jump is intended to be performed:
 --- - Lock eyes on desired location ("spot") recognizable by future jump.
 ---   Should be within visible lines at place where cursor can be placed.
+---
 --- - Initiate jump. Either by custom keybinding or with a call to
 ---   |MiniJump2d.start()| (allows customization options). This will highlight
 ---   all possible jump spots with their labels (letters from "a" to "z" by
 ---   default). For more details, read |MiniJump2d.start()| and |MiniJump2d.config|.
+---
 --- - Type character that appeared over desired location. If its label was
 ---   unique, jump is performed. If it wasn't unique, possible jump spots are
 ---   filtered to those having the same label character.
+---
 --- - Repeat previous step until there is only one possible jump spot or type `<CR>`
 ---   to jump to first available jump spot. Typing anything else stops jumping
 ---    without moving cursor.
@@ -48,6 +60,8 @@
 --- You can override runtime config settings locally to buffer inside
 --- `vim.b.minijump2d_config` which should have same structure as
 --- `MiniJump2d.config`. See |mini.nvim-buffer-local-config| for more details.
+---
+--- To stop module from showing non-error feedback, set `config.silent = true`.
 ---
 --- # Example usage~
 ---
@@ -68,6 +82,8 @@
 --- - 'phaazon/hop.nvim':
 ---     - Both are fast, customizable, and extensible (user can write their own
 ---       ways to define jump spots).
+---     - 'hop.nvim' visualizes all steps at once. While this module can show
+---       configurable number of steps ahead.
 ---     - Both have several builtin ways to specify type of jump (word start,
 ---       line start, one character or query based on user input). 'hop.nvim'
 ---       does that by exporting many targeted Neovim commands, while this
@@ -80,35 +96,40 @@
 ---       shorter than the others (leading to fewer average keystrokes). They
 ---       are put near cursor (by default) and highlighted differently. Final
 ---       order of sequences is based on distance to the cursor.
----     - 'hop.nvim' visualizes labels differently. It is designed to show
----       whole sequences at once, while this module intentionally shows only
----       current one at a time.
 ---     - 'mini.jump2d' has opinionated default algorithm of computing jump
 ---       spots. See |MiniJump2d.default_spotter|.
 ---
 --- # Highlight groups~
 ---
---- * `MiniJump2dSpot` - highlighting of jump spots. By default it uses label
----   with highest contrast while not being too visually demanding: white on
----   black for dark 'background', black on white for light. If it doesn't
----   suit your liking, try couple of these alternatives (or choose your own,
----   of course):
+--- * `MiniJump2dSpot` - highlighting of jump spot's next step. By default it
+---   uses label with highest contrast while not being too visually demanding:
+---   white on black for dark 'background', black on white for light. If it
+---   doesn't suit your liking, try couple of these alternatives (or choose
+---   your own, of course):
 ---     - `hi MiniJump2dSpot gui=reverse` - reverse underlying highlighting (more
 ---       colorful while being visible in any colorscheme).
 ---     - `hi MiniJump2dSpot gui=bold,italic` - bold italic.
 ---     - `hi MiniJump2dSpot gui=undercurl guisp=red` - red undercurl.
 ---
+--- * `MiniJump2dSpotUnique` - highlighting of jump spot's next step if it has
+---   unique label. By default links to `MiniJump2dSpot`.
+---
+--- * `MiniJump2dSpotAhead` - highlighting of jump spot's future steps. By default
+---   similar to `MiniJump2dSpot` but with less contrast and visibility.
+---
+--- * `MiniJump2dDim` - highlighting of lines with at least one jump spot.
+---   Make it non-bright in order for jump spot labels to be more visible.
+---   By default linked to `Comment` highlight group.
+---
 --- To change any highlight group, modify it directly with |:highlight|.
 ---
 --- # Disabling~
 ---
---- To disable, set `g:minijump2d_disable` (globally) or `b:minijump2d_disable`
---- (for a buffer) to `v:true`. Considering high number of different scenarios
---- and customization intentions, writing exact rules for disabling module's
---- functionality is left to user. See |mini.nvim-disabling-recipes| for common
---- recipes.
----@tag mini.jump2d
----@tag MiniJump2d
+--- To disable, set `vim.g.minijump2d_disable` (globally) or
+--- `vim.b.minijump2d_disable` (for a buffer) to `true`. Considering high
+--- number of different scenarios and customization intentions, writing exact
+--- rules for disabling module's functionality is left to user. See
+--- |mini.nvim-disabling-recipes| for common recipes.
 
 -- Module definition ==========================================================
 local MiniJump2d = {}
@@ -116,10 +137,19 @@ local H = {}
 
 --- Module setup
 ---
----@param config table Module config table. See |MiniJump2d.config|.
+---@param config table|nil Module config table. See |MiniJump2d.config|.
 ---
 ---@usage `require('mini.jump2d').setup({})` (replace `{}` with your `config` table)
 MiniJump2d.setup = function(config)
+  -- TODO: Remove after Neovim<=0.6 support is dropped
+  if vim.fn.has('nvim-0.7') == 0 then
+    vim.notify(
+      '(mini.jump2d) Neovim<0.7 is soft deprecated (module works but not supported).'
+        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
+        .. ' Please update your Neovim version.'
+    )
+  end
+
   -- Export module
   _G.MiniJump2d = MiniJump2d
 
@@ -142,11 +172,29 @@ MiniJump2d.setup = function(config)
   end
 
   -- Create highlighting
-  local hl_cmd = 'hi default MiniJump2dSpot guifg=white guibg=black gui=bold,nocombine'
-  if vim.o.background == 'light' then
-    hl_cmd = 'hi default MiniJump2dSpot guifg=black guibg=white gui=bold,nocombine'
-  end
-  vim.cmd(hl_cmd)
+  local is_light_bg = vim.o.background == 'light'
+  local bg_color = is_light_bg and 'white' or 'black'
+  local fg_color = is_light_bg and 'black' or 'white'
+
+  local main_hl_cmd =
+    string.format('hi default MiniJump2dSpot guifg=%s guibg=%s gui=bold,nocombine', fg_color, bg_color)
+  vim.cmd(main_hl_cmd)
+
+  local ahead_hl_cmd = string.format('hi default MiniJump2dSpotAhead guifg=grey guibg=%s gui=nocombine', bg_color)
+  vim.cmd(ahead_hl_cmd)
+
+  vim.cmd('hi default link MiniJump2dSpotUnique MiniJump2dSpot')
+  vim.cmd('hi default link MiniJump2dDim Comment')
+
+  local augroup_hl_cmd = string.format(
+    [[augroup MiniJump2d
+        au ColorScheme * %s
+        au ColorScheme * %s
+      augroup END]],
+    main_hl_cmd,
+    ahead_hl_cmd
+  )
+  vim.api.nvim_exec(augroup_hl_cmd, false)
 end
 
 --- Module config
@@ -173,6 +221,18 @@ end
 --- Note: spotter function is always called with `win_id` window being
 --- "temporary current" (see |nvim_win_call|). This allows using builtin
 --- Vimscript functions that operate only inside current window.
+---
+--- ## View ~
+---
+--- Option `view.n_steps_ahead` controls how many steps ahead to show along
+--- with the currently required label. Those future steps are showed with
+--- different (less visible) highlight group ("MiniJump2dSpotAhead"). Usually
+--- it is a good idea to use this with a spotter which doesn't result into many
+--- jump spots (like, for example, |MiniJump2d.builtin_opts.word_start|).
+--- Default is 0 to not show anything ahead as it reduces visual noise.
+---
+--- Option `view.dim` contols whether to dim lines with at least one jump spot.
+--- Dimming is done by applying "MiniJump2dDim" highlight group to the whol line.
 ---
 --- ## Allowed lines~
 ---
@@ -203,6 +263,15 @@ MiniJump2d.config = {
   -- Characters used for labels of jump spots (in supplied order)
   labels = 'abcdefghijklmnopqrstuvwxyz',
 
+  -- Options for visual effects
+  view = {
+    -- Whether to dim lines with at least one jump spot
+    dim = false,
+
+    -- How many steps ahead to show. Set to big number to show all steps.
+    n_steps_ahead = 0,
+  },
+
   -- Which lines are used for computing spots
   allowed_lines = {
     blank = true, -- Blank line (not sent to spotter even if `true`)
@@ -228,6 +297,9 @@ MiniJump2d.config = {
   mappings = {
     start_jumping = '<CR>',
   },
+
+  -- Whether to disable showing non-error feedback
+  silent = false,
 }
 --minidoc_afterlines_end
 
@@ -278,10 +350,15 @@ MiniJump2d.config = {
 --- With default 26 labels for most real-world cases 2 steps is enough for
 --- default spotter function. Rarely 3 steps are needed with several windows.
 ---
----@param opts table Configuration of jumping, overriding global and buffer
+---@param opts table|nil Configuration of jumping, overriding global and buffer
 ---   local values.config|. Has the same structure as |MiniJump2d.config|
 ---   without <mappings> field. Extra allowed fields:
----     - <hl_group> - which highlight group to use (default: "MiniJump2dSpot").
+---     - <hl_group> - which highlight group to use for first step.
+---       Default: "MiniJump2dSpot".
+---     - <hl_group_ahead> - which highlight group to use for second step and later.
+---       Default: "MiniJump2dSpotAhead".
+---     - <hl_group_dim> - which highlight group to use dimming used lines.
+---       Default: "MiniJump2dSpotDim".
 ---
 ---@usage - Start default jumping:
 ---   `MiniJump2d.start()`
@@ -314,9 +391,22 @@ MiniJump2d.start = function(opts)
   opts = H.get_config(opts)
   opts.spotter = opts.spotter or MiniJump2d.default_spotter
   opts.hl_group = opts.hl_group or 'MiniJump2dSpot'
+  opts.hl_group_ahead = opts.hl_group_ahead or 'MiniJump2dSpotAhead'
+  opts.hl_group_unique = opts.hl_group_unique or 'MiniJump2dSpotUnique'
+  opts.hl_group_dim = opts.hl_group_dim or 'MiniJump2dDim'
 
   local spots = H.spots_compute(opts)
-  spots = H.spots_add_label(spots, opts)
+  if #spots == 0 then
+    H.message('No spots to show.')
+    return
+  end
+  if #spots == 1 then
+    H.perform_jump(spots[1], opts.hooks.after_jump)
+    return
+  end
+
+  local label_tbl = vim.split(opts.labels, '')
+  spots = H.spots_add_steps(spots, label_tbl, opts.view.n_steps_ahead)
 
   H.spots_show(spots, opts)
 
@@ -531,6 +621,7 @@ H.default_config = MiniJump2d.config
 
 -- Namespaces to be used withing module
 H.ns_id = {
+  dim = vim.api.nvim_create_namespace('MiniJump2dDim'),
   spots = vim.api.nvim_create_namespace('MiniJump2dSpots'),
   input = vim.api.nvim_create_namespace('MiniJump2dInput'),
 }
@@ -565,13 +656,18 @@ H.setup_config = function(config)
   vim.validate({
     spotter = { config.spotter, 'function', true },
     labels = { config.labels, 'string' },
+    view = { config.view, 'table' },
     allowed_lines = { config.allowed_lines, 'table' },
     allowed_windows = { config.allowed_windows, 'table' },
     hooks = { config.hooks, 'table' },
     mappings = { config.mappings, 'table' },
+    silent = { config.silent, 'boolean' },
   })
 
   vim.validate({
+    ['view.dim'] = { config.view.dim, 'boolean' },
+    ['view.n_steps_ahead'] = { config.view.n_steps_ahead, 'number' },
+
     ['allowed_lines.blank'] = { config.allowed_lines.blank, 'boolean' },
     ['allowed_lines.cursor_before'] = { config.allowed_lines.cursor_before, 'boolean' },
     ['allowed_lines.cursor_at'] = { config.allowed_lines.cursor_at, 'boolean' },
@@ -633,45 +729,88 @@ H.spots_compute = function(opts)
   return res
 end
 
-H.spots_add_label = function(spots, opts)
-  local label_tbl = vim.split(opts.labels, '')
+H.spots_add_steps = function(spots, label_tbl, n_steps_ahead)
+  -- Compute all required steps
+  local steps = {}
+  for _ = 1, #spots do
+    table.insert(steps, {})
+  end
 
-  -- Example: with 3 label characters labels should evolve with progressing
-  -- number of spots like this: 'a', 'ab', 'abc', 'aabc', 'aabbc', 'aabbcc',
-  -- 'aaabbcc', 'aaabbbcc', 'aaabbbccc', etc.
-  local n_spots, n_label_chars = #spots, #label_tbl
-  local base, extra = math.floor(n_spots / n_label_chars), n_spots % n_label_chars
+  H.populate_spot_steps(steps, label_tbl, 1, n_steps_ahead + 1)
 
-  local label_id, cur_label_count = 1, 0
-  local label_max_count = base + (label_id <= extra and 1 or 0)
-  for _, s in ipairs(spots) do
-    s.label = label_tbl[label_id]
-    cur_label_count = cur_label_count + 1
-    if cur_label_count >= label_max_count then
-      label_id, cur_label_count = label_id + 1, 0
-      label_max_count = base + (label_id <= extra and 1 or 0)
-    end
+  for i, spot in ipairs(spots) do
+    spot.steps = steps[i]
   end
 
   return spots
 end
 
+---@param spot_steps_arr table Array of step arrays. Single step array consists
+---   from labels user needs to press in order to filter out the spot. Example:
+---   { { 'a', 'a' }, { 'a', 'b' },  { 'b' } }
+---
+---@return nil Modifies `spot_steps_arr` in place.
+---@private
+H.populate_spot_steps = function(spot_steps_arr, label_tbl, cur_step, max_step)
+  local n_spots, n_label_chars = #spot_steps_arr, #label_tbl
+  if n_spots <= 1 or max_step < cur_step then return end
+
+  -- Adding labels for specific step is done by distributing all available
+  -- labels as equally as possible by repeating labels in their order.
+  -- Example: with 3 label characters labels should evolve with progressing
+  -- number of spots like this: 'a', 'ab', 'abc', 'aabc', 'aabbc', 'aabbcc',
+  -- 'aaabbcc', 'aaabbbcc', 'aaabbbccc', etc.
+  local base, extra = math.floor(n_spots / n_label_chars), n_spots % n_label_chars
+
+  -- `cur_label_spot_steps` is an array of spot steps which are expanded with
+  -- the same label. It is used to initiate computing all steps needed.
+  local label_id, cur_label_spot_steps = 1, {}
+  local label_max_count = base + (label_id <= extra and 1 or 0)
+  for _, spot_steps in ipairs(spot_steps_arr) do
+    table.insert(spot_steps, label_tbl[label_id])
+    table.insert(cur_label_spot_steps, spot_steps)
+
+    if #cur_label_spot_steps >= label_max_count then
+      H.populate_spot_steps(cur_label_spot_steps, label_tbl, cur_step + 1, max_step)
+      label_id, cur_label_spot_steps = label_id + 1, {}
+      label_max_count = base + (label_id <= extra and 1 or 0)
+    end
+  end
+end
+
 H.spots_show = function(spots, opts)
   spots = spots or H.cache.spots or {}
-  if #spots == 0 then
-    H.message('No spots to show.')
-    return
-  end
 
-  for _, extmark in ipairs(H.spots_to_extmarks(spots)) do
+  local set_extmark = vim.api.nvim_buf_set_extmark
+
+  -- Add extmark with proper virtual text to jump spots
+  local dim_buf_lines = {}
+  for _, extmark in ipairs(H.spots_to_extmarks(spots, opts)) do
     local extmark_opts = {
       hl_mode = 'combine',
       -- Use very high priority
       priority = 1000,
-      virt_text = { { extmark.text, opts.hl_group } },
+      virt_text = extmark.virt_text,
       virt_text_pos = 'overlay',
     }
-    pcall(vim.api.nvim_buf_set_extmark, extmark.buf_id, H.ns_id.spots, extmark.line, extmark.col, extmark_opts)
+    local buf_id, line = extmark.buf_id, extmark.line
+    pcall(set_extmark, buf_id, H.ns_id.spots, line, extmark.col, extmark_opts)
+
+    -- Register lines to dim
+    local lines = dim_buf_lines[buf_id] or {}
+    lines[line] = true
+    dim_buf_lines[buf_id] = lines
+  end
+
+  -- Possibly dim used lines
+  if opts.view.dim then
+    local extmark_opts = { end_col = 0, hl_eol = true, hl_group = opts.hl_group_dim, priority = 999 }
+    for buf_id, lines in pairs(dim_buf_lines) do
+      for _, l_num in ipairs(vim.tbl_keys(lines)) do
+        extmark_opts.end_line = l_num + 1
+        pcall(set_extmark, buf_id, H.ns_id.dim, l_num, 0, extmark_opts)
+      end
+    end
   end
 
   -- Need to redraw in Operator-pending mode, because otherwise extmarks won't
@@ -690,34 +829,66 @@ H.spots_unshow = function(spots)
 
   for _, buf_id in ipairs(vim.tbl_keys(buf_ids)) do
     pcall(vim.api.nvim_buf_clear_namespace, buf_id, H.ns_id.spots, 0, -1)
+    pcall(vim.api.nvim_buf_clear_namespace, buf_id, H.ns_id.dim, 0, -1)
   end
 end
 
---- Convert consecutive spots into single extmark
+--- Convert consecutive spot labels into single extmark
 ---
 --- This considerably increases performance in case of many spots.
 ---@private
-H.spots_to_extmarks = function(spots)
+H.spots_to_extmarks = function(spots, opts)
   if #spots == 0 then return {} end
 
-  local res = {}
+  local hl_group, hl_group_ahead, hl_group_unique = opts.hl_group, opts.hl_group_ahead, opts.hl_group_unique
 
-  local buf_id, line, col = spots[1].buf_id, spots[1].line - 1, spots[1].column - 1
-  local extmark_chars = {}
-  local cur_col = col
+  -- Compute counts for first step in order to distinguish which highlight
+  -- group to use: `hl_group` or `hl_group_unique`
+  local first_step_counts = {}
   for _, s in ipairs(spots) do
-    local is_within_same_extmark = s.buf_id == buf_id and s.line == (line + 1) and s.column == (cur_col + 1)
-
-    if not is_within_same_extmark then
-      table.insert(res, { buf_id = buf_id, col = col, line = line, text = table.concat(extmark_chars) })
-      buf_id, line, col = s.buf_id, s.line - 1, s.column - 1
-      extmark_chars = {}
-    end
-
-    table.insert(extmark_chars, s.label)
-    cur_col = s.column
+    local cur_first_step = s.steps[1]
+    local cur_count = first_step_counts[cur_first_step] or 0
+    first_step_counts[cur_first_step] = cur_count + 1
   end
-  table.insert(res, { buf_id = buf_id, col = col, line = line, text = table.concat(extmark_chars) })
+
+  -- Define how steps for single spot are added to virtual text
+  local append_to_virt_text = function(virt_text_arr, steps, n_steps_to_show)
+    -- Use special group if current first step is unique
+    local first_hl_group = first_step_counts[steps[1]] == 1 and hl_group_unique or hl_group
+    table.insert(virt_text_arr, { steps[1], first_hl_group })
+
+    -- Add ahead steps only if they are present
+    local ahead_label = table.concat(steps):sub(2, n_steps_to_show)
+    if ahead_label ~= '' then table.insert(virt_text_arr, { ahead_label, hl_group_ahead }) end
+  end
+
+  -- Convert all spots to array of extmarks
+  local res = {}
+  local buf_id, line, col, virt_text = spots[1].buf_id, spots[1].line - 1, spots[1].column - 1, {}
+
+  for i = 1, #spots - 1 do
+    local cur_spot, next_spot = spots[i], spots[i + 1]
+    local n_steps = #cur_spot.steps
+
+    -- Find which spot steps can be shown
+    local is_in_same_line = cur_spot.buf_id == next_spot.buf_id and cur_spot.line == next_spot.line
+    local max_allowed_steps = is_in_same_line and (next_spot.column - cur_spot.column) or math.huge
+    local n_steps_to_show = math.min(n_steps, max_allowed_steps)
+
+    -- Add text for shown steps
+    append_to_virt_text(virt_text, cur_spot.steps, n_steps_to_show)
+
+    -- Finish creating extmark if next spot is far enough
+    local next_is_close = is_in_same_line and n_steps == max_allowed_steps
+    if not next_is_close then
+      table.insert(res, { buf_id = buf_id, line = line, col = col, virt_text = virt_text })
+      buf_id, line, col, virt_text = next_spot.buf_id, next_spot.line - 1, next_spot.column - 1, {}
+    end
+  end
+
+  local last_steps = spots[#spots].steps
+  append_to_virt_text(virt_text, last_steps, #last_steps)
+  table.insert(res, { buf_id = buf_id, line = line, col = col, virt_text = virt_text })
 
   return res
 end
@@ -751,6 +922,7 @@ H.advance_jump = function(opts)
   local label_tbl = vim.split(opts.labels, '')
 
   local spots = H.cache.spots
+  local n_steps_ahead = opts.view.n_steps_ahead
 
   if type(spots) ~= 'table' or #spots < 1 then
     H.spots_unshow(spots)
@@ -762,10 +934,10 @@ H.advance_jump = function(opts)
 
   if vim.tbl_contains(label_tbl, key) then
     H.spots_unshow(spots)
-    spots = vim.tbl_filter(function(x) return x.label == key end, spots)
+    spots = vim.tbl_filter(function(x) return x.steps[1] == key end, spots)
 
     if #spots > 1 then
-      spots = H.spots_add_label(spots, opts)
+      spots = H.spots_add_steps(spots, label_tbl, n_steps_ahead)
       H.spots_show(spots, opts)
       H.cache.spots = spots
 
@@ -781,25 +953,28 @@ H.advance_jump = function(opts)
     end
   end
 
-  if #spots == 1 or key == H.keys.cr then
-    -- Add to jumplist
-    vim.cmd('normal! m`')
-
-    local first_spot = spots[1]
-    vim.api.nvim_set_current_win(first_spot.win_id)
-    vim.api.nvim_win_set_cursor(first_spot.win_id, { first_spot.line, first_spot.column - 1 })
-
-    -- Possibly unfold to see cursor
-    vim.cmd('normal! zv')
-
-    if opts.hooks.after_jump ~= nil then opts.hooks.after_jump() end
-  end
+  if #spots == 1 or key == H.keys.cr then H.perform_jump(spots[1], opts.hooks.after_jump) end
 
   MiniJump2d.stop()
 end
 
+H.perform_jump = function(spot, after_hook)
+  -- Add to jumplist
+  vim.cmd('normal! m`')
+
+  vim.api.nvim_set_current_win(spot.win_id)
+  vim.api.nvim_win_set_cursor(spot.win_id, { spot.line, spot.column - 1 })
+
+  -- Possibly unfold to see cursor
+  vim.cmd('normal! zv')
+
+  if after_hook ~= nil then after_hook() end
+end
+
 -- Utilities ------------------------------------------------------------------
 H.echo = function(msg, is_important)
+  if H.get_config().silent then return end
+
   -- Construct message chunks
   msg = type(msg) == 'string' and { { msg } } or msg
   table.insert(msg, 1, { '(mini.jump2d) ', 'WarningMsg' })

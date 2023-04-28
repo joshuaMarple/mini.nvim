@@ -1,13 +1,16 @@
+*mini.trailspace* Trailspace (highlight and remove)
+*MiniTrailspace*
+
+MIT License Copyright (c) 2021 Evgeni Chasnovski
+
 ==============================================================================
-------------------------------------------------------------------------------
-                                                               *mini.trailspace*
-                                                                *MiniTrailspace*
-Work with trailing whitespace
 
 Features:
 - Highlighting is done only in modifiable buffer by default, only in Normal
   mode, and stops in Insert mode and when leaving window.
+
 - Trim all trailing whitespace with |MiniTrailspace.trim()|.
+
 - Trim all trailing empty lines with |MiniTrailspace.trim_last_lines()|.
 
 # Setup~
@@ -31,8 +34,8 @@ To change any highlight group, modify it directly with |:highlight|.
 
 # Disabling~
 
-To disable, set `g:minitrailspace_disable` (globally) or
-`b:minitrailspace_disable` (for a buffer) to `v:true`. Considering high
+To disable, set `vim.g.minitrailspace_disable` (globally) or
+`vim.b.minitrailspace_disable` (for a buffer) to `true`. Considering high
 number of different scenarios and customization intentions, writing exact
 rules for disabling module's functionality is left to user. See
 |mini.nvim-disabling-recipes| for common recipes. Note: after disabling
@@ -45,7 +48,7 @@ highlighting update (see |events| and `MiniTrailspace` |augroup|).
 Module setup
 
 Parameters~
-{config} `(table)` Module config table. See |MiniTrailspace.config|.
+{config} `(table|nil)` Module config table. See |MiniTrailspace.config|.
 
 Usage~
 `require('mini.trailspace').setup({})` (replace `{}` with your `config` table)

@@ -1,7 +1,10 @@
+*mini.base16* Base16 colorscheme creation
+*MiniBase16*
+
+MIT License Copyright (c) 2021 Evgeni Chasnovski
+
 ==============================================================================
-------------------------------------------------------------------------------
-                                                                   *mini.base16*
-                                                                    *MiniBase16*
+
 Fast implementation of 'chriskempson/base16' color scheme (with Copyright
 (C) 2012 Chris Kempson) adapted for modern Neovim Lua plugins.
 Extra features:
@@ -11,12 +14,15 @@ Extra features:
 
 Supported highlight groups:
 - Builtin-in Neovim LSP and diagnostic.
+
 - Plugins (either with explicit definition or by verification that default
   highlighting works appropriately):
     - 'echasnovski/mini.nvim'
     - 'akinsho/bufferline.nvim'
     - 'anuvyklack/hydra.nvim'
     - 'DanilaMihailov/beacon.nvim'
+    - 'folke/lazy.nvim'
+    - 'folke/noice.nvim'
     - 'folke/todo-comments.nvim'
     - 'folke/trouble.nvim'
     - 'folke/which-key.nvim'
@@ -24,16 +30,17 @@ Supported highlight groups:
     - 'ggandor/lightspeed.nvim'
     - 'glepnir/dashboard-nvim'
     - 'glepnir/lspsaga.nvim'
+    - 'HiPhish/nvim-ts-rainbow2'
     - 'hrsh7th/nvim-cmp'
     - 'justinmk/vim-sneak'
-    - 'nvim-tree/nvim-tree.lua'
+    - 'kevinhwang91/nvim-ufo'
     - 'lewis6991/gitsigns.nvim'
     - 'lukas-reineke/indent-blankline.nvim'
     - 'neoclide/coc.nvim'
     - 'nvim-lualine/lualine.nvim'
     - 'nvim-neo-tree/neo-tree.nvim'
     - 'nvim-telescope/telescope.nvim'
-    - 'p00f/nvim-ts-rainbow'
+    - 'nvim-tree/nvim-tree.lua'
     - 'phaazon/hop.nvim'
     - 'rcarriga/nvim-dap-ui'
     - 'rcarriga/nvim-notify'

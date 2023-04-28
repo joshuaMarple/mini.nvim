@@ -124,6 +124,7 @@ T['setup()']['creates `config` field'] = function()
   expect_config('footer', vim.NIL)
   expect_config('content_hooks', vim.NIL)
   expect_config('query_updaters', 'abcdefghijklmnopqrstuvwxyz0123456789_-.')
+  expect_config('silent', false)
 end
 
 T['setup()']['respects `config` argument'] = function()
@@ -145,6 +146,7 @@ T['setup()']['validates `config` argument'] = function()
   -- `header` and `footer` can have any type
   expect_config_error({ content_hooks = 'a' }, 'content_hooks', 'table')
   expect_config_error({ query_updaters = 1 }, 'query_updaters', 'string')
+  expect_config_error({ silent = 1 }, 'silent', 'boolean')
 end
 
 -- Work with Starter buffer ---------------------------------------------------
@@ -178,6 +180,7 @@ T['open()']['sets buffer options'] = function()
   eq(child.bo.modifiable, false)
   eq(child.wo.colorcolumn, '')
   eq(child.wo.signcolumn, 'no')
+  eq(child.wo.wrap, false)
 
   -- Should hide tabline but not touch statusline
   eq(child.o.showtabline, 1)
@@ -486,6 +489,32 @@ T['refresh()']['respects `vim.b.ministarter_config`'] = function()
   child.expect_screenshot()
 end
 
+T['refresh()']['respects `vim.b.ministarter_config`'] = function()
+  child.lua('MiniStarter.open()')
+  child.expect_screenshot()
+
+  child.b.ministarter_config = {
+    header = 'Hello',
+    footer = 'World',
+    content_hooks = {},
+    items = { { name = 'aaa', action = 'echo "aaa"', section = 'AAA' } },
+  }
+  child.lua('MiniStarter.refresh()')
+  child.expect_screenshot()
+end
+
+T['refresh()']['respects `config.silent`'] = function()
+  child.lua('MiniStarter.open()')
+  child.expect_screenshot()
+
+  -- Clear command line
+  child.cmd([[echo '']])
+  child.lua('MiniStarter.config.silent = true')
+
+  type_keys('a')
+  child.expect_screenshot()
+end
+
 T['close()'] = new_set()
 
 T['close()']['works'] = function()
@@ -748,6 +777,8 @@ T['gen_hook']['aligning()']['respects arguments'] = new_set({
 })
 
 T['gen_hook']['aligning()']['handles small windows'] = function()
+  if child.fn.has('nvim-0.10') == 0 then MiniTest.skip('Screenshots are generated for Neovim>=0.10.') end
+
   child.set_size(15, 40)
   child.cmd('vsplit | split')
   child.api.nvim_win_set_width(0, 2)
@@ -764,6 +795,8 @@ T['gen_hook']['aligning()']['handles small windows'] = function()
 end
 
 T['gen_hook']['aligning()']['has output respecting `buf_id` argument'] = function()
+  if child.fn.has('nvim-0.10') == 0 then MiniTest.skip('Screenshots are generated for Neovim>=0.10.') end
+
   child.set_size(15, 40)
   reload_from_strconfig({
     content_hooks = [[{ MiniStarter.gen_hook.aligning('center', 'center') }]],
@@ -856,6 +889,56 @@ end
 T['sections']['has correct items'] = function()
   local types = child.lua_get('vim.tbl_map(type, MiniStarter.sections)')
   eq(types, { builtin_actions = 'function', recent_files = 'function', sessions = 'function', telescope = 'function' })
+end
+
+T['sections']['recent_files()'] = new_set()
+
+T['sections']['recent_files()']['correctly identifies files from current directory'] = function()
+  local dir, dir_similar = 'tests/dir-starter/aaa', 'tests/dir-starter/aaabbb'
+  child.fn.mkdir(dir)
+  child.fn.mkdir(dir_similar)
+  MiniTest.finally(function()
+    vim.fn.delete(dir, 'rf')
+    vim.fn.delete(dir_similar, 'rf')
+  end)
+
+  -- Make recent file with absolute path having current directory as substring
+  -- but not inside current directory
+  local file = dir_similar .. '/file'
+  child.fn.writefile({ '' }, file)
+  child.v.oldfiles = { child.fn.fnamemodify(file, ':p') }
+  child.cmd('cd ' .. dir)
+
+  -- Set up to show files only in current directory
+  child.lua('MiniStarter.config.items = { MiniStarter.sections.recent_files(5, true, true) }')
+  child.lua('MiniStarter.open()')
+  -- "Recent files" section should be empty
+  child.expect_screenshot()
+end
+
+T['sections']['recent_files()']['respects files in subdirectories'] = function()
+  local dir = 'tests/dir-starter/aaa'
+  local dir_nested = 'tests/dir-starter/aaa/bbb'
+  child.fn.mkdir(dir)
+  child.fn.mkdir(dir_nested)
+  MiniTest.finally(function()
+    vim.fn.delete(dir, 'rf')
+    vim.fn.delete(dir_nested, 'rf')
+  end)
+
+  local file1 = dir .. '/file1'
+  child.fn.writefile({ '' }, file1)
+  local file2 = dir_nested .. '/file2'
+  child.fn.writefile({ '' }, file2)
+
+  child.v.oldfiles = { child.fn.fnamemodify(file1, ':p'), child.fn.fnamemodify(file2, ':p') }
+  child.cmd('cd ' .. dir)
+
+  -- Set up to show files only in current directory
+  child.lua('MiniStarter.config.items = { MiniStarter.sections.recent_files(5, true, true) }')
+  child.lua('MiniStarter.open()')
+  -- "Recent files" section should show both files
+  child.expect_screenshot()
 end
 
 -- Work with query ------------------------------------------------------------
@@ -1070,6 +1153,28 @@ T['Querying']['respects `config.evaluate_single`'] = function()
   reload_module()
   child.b.ministarter_config = { evaluate_single = true, items = example_items }
   validate()
+end
+
+T['Querying']['works with `cmdheight=0`'] = function()
+  if child.fn.has('nvim-0.8') == 0 then return end
+
+  child.set_size(20, 50)
+  child.o.cmdheight = 0
+  reload_module({ items = example_items })
+
+  child.lua('MiniStarter.open()')
+
+  -- It should work without giving hit-enter-prompt
+  type_keys('a')
+  type_keys('a')
+  eq(child.api.nvim_get_mode().blocking, false)
+
+  -- There should be no query showed
+  child.expect_screenshot()
+
+  -- There shouldn't be hit-enter-prompt after leaving buffer
+  type_keys(':bw<CR>')
+  eq(child.api.nvim_get_mode().blocking, false)
 end
 
 T['Keybindings'] = new_set({

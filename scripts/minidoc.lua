@@ -7,7 +7,10 @@ local modules = {
   'align',
   'animate',
   'base16',
+  'basics',
+  'bracketed',
   'bufremove',
+  'colors',
   'comment',
   'completion',
   'cursorword',
@@ -21,6 +24,7 @@ local modules = {
   'move',
   'pairs',
   'sessions',
+  'splitjoin',
   'starter',
   'statusline',
   'surround',
@@ -29,8 +33,18 @@ local modules = {
   'trailspace',
 }
 
-for _, m in ipairs(modules) do
-  minidoc.generate({ 'lua/mini/' .. m .. '.lua' }, 'doc/mini-' .. m .. '.txt', { hooks = minidoc.default_hooks })
+local hooks = vim.deepcopy(MiniDoc.default_hooks)
+
+hooks.write_pre = function(lines)
+  -- Remove first two lines with `======` and `------` delimiters to comply
+  -- with `:h local-additions` template
+  table.remove(lines, 1)
+  table.remove(lines, 1)
+  return lines
 end
 
-minidoc.generate({ 'lua/mini/init.lua' }, 'doc/mini.txt', { hooks = minidoc.default_hooks })
+MiniDoc.generate({ 'lua/mini/init.lua' }, 'doc/mini.txt', { hooks = hooks })
+
+for _, m in ipairs(modules) do
+  MiniDoc.generate({ 'lua/mini/' .. m .. '.lua' }, 'doc/mini-' .. m .. '.txt', { hooks = hooks })
+end

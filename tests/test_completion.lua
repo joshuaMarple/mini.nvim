@@ -200,13 +200,9 @@ T['setup()']['respects `config.set_vim_settings`'] = function()
   eq(child.api.nvim_get_option('completeopt'), 'menuone,noinsert,noselect')
 end
 
--- TODO: Remove after 0.7.0 release.
-T['setup()']['`config.window_dimensions` is possible as transition layer'] = function()
-  child.o.cmdheight = 10
-  reload_module({ window_dimensions = { info = { height = 10 } } })
-
-  eq(child.lua_get('MiniCompletion.config.window.info.height'), 10)
-  expect.match(child.cmd_capture('1messages'), 'is renamed')
+T['setup()']['defines non-linked default highlighting on `ColorScheme`'] = function()
+  child.cmd('colorscheme blue')
+  expect.match(child.cmd_capture('hi MiniCompletionActiveParameter'), 'gui=underline')
 end
 
 -- Integration tests ==========================================================

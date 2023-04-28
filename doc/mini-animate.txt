@@ -1,36 +1,47 @@
+*mini.animate* Animate common Neovim actions
+*MiniAnimate*
+
+MIT License Copyright (c) 2022 Evgeni Chasnovski
+
 ==============================================================================
-------------------------------------------------------------------------------
-                                                                  *mini.animate*
-                                                                   *MiniAnimate*
-Animate common Neovim actions
 
 Features:
 - Works out of the box with a single `require('mini.animate').setup()`.
   No extra mappings or commands needed.
+
 - Animate cursor movement inside same buffer by showing customizable path.
   See |MiniAnimate.config.cursor| for more details.
+
 - Animate scrolling with a series of subscrolls ("smooth scrolling").
   See |MiniAnimate.config.scroll| for more details.
+
 - Animate window resize by gradually changing sizes of all windows.
   See |MiniAnimate.config.resize| for more details.
+
 - Animate window open/close with visually updating floating window.
   See |MiniAnimate.config.open| and |MiniAnimate.config.close| for more details.
+
 - Timings for all actions can be customized independently.
   See |MiniAnimate-timing| for more details.
+
 - Action animations can be enabled/disabled independently.
+
 - All animations are asynchronous/non-blocking and trigger a targeted event
   which can be used to perform actions after animation is done.
+
 - |MiniAnimate.animate()| function which can be used to perform own animations.
 
 Notes:
 - Cursor movement is animated inside same window and buffer, not as cursor
   moves across the screen.
+
 - Scroll and resize animations are done with "side effects": they actually
   change the state of what is animated (window view and sizes
   respectively). This has a downside of possibly needing extra work to
   account for asynchronous nature of animation (like adjusting certain
   mappings, etc.). See |MiniAnimate.config.scroll| and
   |MiniAnimate.config.resize| for more details.
+
 - Although all animations work in all supported versions of Neovim, scroll
   and resize animations have best experience with Neovim>=0.9 (current nightly
   release). This is due to updated implementation of |WinScrolled| event.
@@ -81,11 +92,11 @@ To change any highlight group, modify it directly with |:highlight|.
 
 # Disabling~
 
-To disable, set `g:minianimate_disable` (globally) or `b:minianimate_disable`
-(for a buffer) to `v:true`. Considering high number of different scenarios
-and customization intentions, writing exact rules for disabling module's
-functionality is left to user. See |mini.nvim-disabling-recipes| for common
-recipes.
+To disable, set `vim.g.minianimate_disable` (globally) or
+`vim.b.minianimate_disable` (for a buffer) to `true`. Considering high
+number of different scenarios and customization intentions, writing exact
+rules for disabling module's functionality is left to user. See
+|mini.nvim-disabling-recipes| for common recipes.
 
 ------------------------------------------------------------------------------
                                                            *MiniAnimate.setup()*
@@ -489,11 +500,11 @@ Notes:
       immediately.
 
 Parameters~
-{step_action} `(function)` Callable which takes `step` (integer 0, 1, 2,
+{step_action} `(function|table)` Callable which takes `step` (integer 0, 1, 2,
   etc. indicating current step) and executes some action. Its return value
   defines when animation should stop: values `false` and `nil` (equivalent
   to no explicit return) stop animation timer; any other continues it.
-{step_timing} `(function)` Callable which takes `step` (integer 1, 2, etc.
+{step_timing} `(function|table)` Callable which takes `step` (integer 1, 2, etc.
   indicating next step) and returns how many milliseconds to wait before
   executing this step action.
 {opts} `(table|nil)` Options. Possible fields:
@@ -535,7 +546,7 @@ if you want to disable animation.
 Generate timing with linear progression
 
 Parameters~
-{opts} `(table)` Options that control progression. Possible keys:
+{opts} `(table|nil)` Options that control progression. Possible keys:
   - <easing> `(string)` - a subtype of progression. One of "in"
     (accelerating from zero speed), "out" (decelerating to zero speed),
     "in-out" (default; accelerating halfway, decelerating after).
@@ -553,7 +564,7 @@ Return~
 Generate timing with quadratic progression
 
 Parameters~
-{opts} `(table)` Options that control progression. Possible keys:
+{opts} `(table|nil)` Options that control progression. Possible keys:
   - <easing> `(string)` - a subtype of progression. One of "in"
     (accelerating from zero speed), "out" (decelerating to zero speed),
     "in-out" (default; accelerating halfway, decelerating after).
@@ -571,7 +582,7 @@ Return~
 Generate timing with cubic progression
 
 Parameters~
-{opts} `(table)` Options that control progression. Possible keys:
+{opts} `(table|nil)` Options that control progression. Possible keys:
   - <easing> `(string)` - a subtype of progression. One of "in"
     (accelerating from zero speed), "out" (decelerating to zero speed),
     "in-out" (default; accelerating halfway, decelerating after).
@@ -589,7 +600,7 @@ Return~
 Generate timing with quartic progression
 
 Parameters~
-{opts} `(table)` Options that control progression. Possible keys:
+{opts} `(table|nil)` Options that control progression. Possible keys:
   - <easing> `(string)` - a subtype of progression. One of "in"
     (accelerating from zero speed), "out" (decelerating to zero speed),
     "in-out" (default; accelerating halfway, decelerating after).
@@ -607,7 +618,7 @@ Return~
 Generate timing with exponential progression
 
 Parameters~
-{opts} `(table)` Options that control progression. Possible keys:
+{opts} `(table|nil)` Options that control progression. Possible keys:
   - <easing> `(string)` - a subtype of progression. One of "in"
     (accelerating from zero speed), "out" (decelerating to zero speed),
     "in-out" (default; accelerating halfway, decelerating after).
@@ -644,7 +655,7 @@ Example: >
 Generate path as shortest line
 
 Parameters~
-{opts} `(table)` Options that control generator. Possible keys:
+{opts} `(table|nil)` Options that control generator. Possible keys:
   - <predicate> `(function)` - a callable which takes `destination` as input and
     returns boolean value indicating whether animation should be done.
     Default: `false` if `destination` is within one line of origin (reduces
@@ -659,7 +670,7 @@ Return~
 Generate path as line/column angle
 
 Parameters~
-{opts} `(table)` Options that control generator. Possible keys:
+{opts} `(table|nil)` Options that control generator. Possible keys:
   - <predicate> `(function)` - a callable which takes `destination` as input and
     returns boolean value indicating whether animation should be done.
     Default: `false` if `destination` is within one line of origin (reduces
@@ -677,7 +688,7 @@ Return~
 Generate path as closing walls at final position
 
 Parameters~
-{opts} `(table)` Options that control generator. Possible keys:
+{opts} `(table|nil)` Options that control generator. Possible keys:
   - <predicate> `(function)` - a callable which takes `destination` as input and
     returns boolean value indicating whether animation should be done.
     Default: `false` if `destination` is within one line of origin (reduces
@@ -693,7 +704,7 @@ Return~
 Generate path as diminishing spiral at final position
 
 Parameters~
-{opts} `(table)` Options that control generator. Possible keys:
+{opts} `(table|nil)` Options that control generator. Possible keys:
   - <predicate> `(function)` - a callable which takes `destination` as input and
     returns boolean value indicating whether animation should be done.
     Default: `false` if `destination` is within one line of origin (reduces
@@ -728,7 +739,7 @@ Example: >
 Generate subscroll with equal steps
 
 Parameters~
-{opts} `(table)` Options that control generator. Possible keys:
+{opts} `(table|nil)` Options that control generator. Possible keys:
   - <predicate> `(function)` - a callable which takes `total_scroll` as
     input and returns boolean value indicating whether animation should be
     done. Default: `false` if `total_scroll` is 1 or less (reduces
@@ -768,7 +779,7 @@ Example: >
 Generate subresize with equal steps
 
 Parameters~
-{opts} `(table)` Options that control generator. Possible keys:
+{opts} `(table|nil)` Options that control generator. Possible keys:
   - <predicate> `(function)` - a callable which takes `sizes_from` and
     `sizes_to` as input and returns boolean value indicating whether
     animation should be done. Default: always `true`.
@@ -820,7 +831,7 @@ This will result into floating window statically covering whole target
 window.
 
 Parameters~
-{opts} `(table)` Options that control generator. Possible keys:
+{opts} `(table|nil)` Options that control generator. Possible keys:
   - <predicate> `(function)` - a callable which takes `win_id` as input and
     returns boolean value indicating whether animation should be done.
     Default: always `true`.
@@ -841,7 +852,7 @@ This will result into floating window growing from or shrinking to the
 target window center.
 
 Parameters~
-{opts} `(table)` Options that control generator. Possible keys:
+{opts} `(table|nil)` Options that control generator. Possible keys:
   - <predicate> `(function)` - a callable which takes `win_id` as input and
     returns boolean value indicating whether animation should be done.
     Default: always `true`.
@@ -864,7 +875,7 @@ vertically split window will progress towards vertical edge; horizontally -
 towards horizontal.
 
 Parameters~
-{opts} `(table)` Options that control generator. Possible keys:
+{opts} `(table|nil)` Options that control generator. Possible keys:
   - <predicate> `(function)` - a callable which takes `win_id` as input and
     returns boolean value indicating whether animation should be done.
     Default: always `true`.
@@ -906,7 +917,7 @@ Example: >
 Generate linear `winblend` progression
 
 Parameters~
-{opts} `(table)` Options that control generator. Possible keys:
+{opts} `(table|nil)` Options that control generator. Possible keys:
   - <from> `(number)` - initial value of 'winblend'.
   - <to> `(number)` - final value of 'winblend'.
 

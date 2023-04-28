@@ -120,7 +120,9 @@ T['setup()']['creates `config` field'] = function()
   expect_config('mappings.update_n_lines', 'sn')
   expect_config('mappings.suffix_last', 'l')
   expect_config('mappings.suffix_next', 'n')
+  expect_config('respect_selection_type', false)
   expect_config('search_method', 'cover')
+  expect_config('silent', false)
 end
 
 T['setup()']['respects `config` argument'] = function()
@@ -150,7 +152,9 @@ T['setup()']['validates `config` argument'] = function()
   expect_config_error({ mappings = { suffix_last = 1 } }, 'mappings.suffix_last', 'string')
   expect_config_error({ mappings = { suffix_next = 1 } }, 'mappings.suffix_next', 'string')
   expect_config_error({ n_lines = 'a' }, 'n_lines', 'number')
+  expect_config_error({ respect_selection_type = 1 }, 'respect_selection_type', 'boolean')
   expect_config_error({ search_method = 1 }, 'search_method', 'one of')
+  expect_config_error({ silent = 1 }, 'silent', 'boolean')
 end
 
 T['setup()']['properly handles `config.mappings`'] = function()
@@ -391,6 +395,83 @@ T['Add surrounding']['works in line and block Visual mode'] = function()
   validate_edit({ 'aaa', 'bbb' }, { 1, 0 }, { '(aaa', 'bbb)' }, { 1, 1 }, type_keys, '<C-v>j$', 'sa', ')')
 end
 
+--stylua: ignore
+T['Add surrounding']['respects `config.respect_selection_type` in linewise mode'] = function()
+  child.lua('MiniSurround.config.respect_selection_type = true')
+
+  local validate = function(before_lines, before_cursor, after_lines, after_cursor, selection_keys)
+    validate_edit(before_lines, before_cursor, after_lines, after_cursor, type_keys, selection_keys, 'sa', ')')
+  end
+
+  -- General test in Visual mode
+  validate({ 'aaa' }, { 1, 0 }, { '(', '\taaa', ')' }, { 2, 1 }, 'V')
+
+  -- Correctly computes indentation
+  validate({ 'aaa',   ' bbb', '  ccc' }, { 2, 0 }, { 'aaa', ' (',      '\t bbb', '\t  ccc', ' )' },  { 3, 2 }, 'Vj')
+  validate({ ' aaa',  '',     ' bbb' },  { 1, 0 }, { ' (',  '\t aaa',  '',       '\t bbb',  ' )' },  { 2, 2 }, 'V2j')
+  validate({ '  aaa', ' ',    '  bbb' }, { 1, 0 }, { '  (', '\t  aaa', '\t ',    '\t  bbb', '  )' }, { 2, 3 }, 'V2j')
+
+  -- Handles empty/blank lines
+  validate({ '  aaa', '', ' ', '  bbb' }, { 1, 0 }, { '  (', '\t  aaa', '', '\t ', '\t  bbb', '  )' }, { 2, 3 }, 'V3j')
+
+  validate({ '',  '  aaa', '' },  { 1, 0 }, { '  (', '',    '\t  aaa', '',    '  )' }, { 2, 0 }, 'V2j')
+  validate({ ' ', '  aaa', ' ' }, { 1, 0 }, { '  (', '\t ', '\t  aaa', '\t ', '  )' }, { 2, 1 }, 'V2j')
+
+  -- Doesn't produce messages
+  validate({ 'aa', 'bb', 'cc' }, { 1, 0 }, { '(', '\taa', '\tbb', '\tcc', ')' }, { 2, 1 }, 'Vip')
+  eq(child.cmd_capture('1messages'), '')
+
+  -- Works with different surroundings
+  validate_edit({ 'aaa' }, { 1, 0 }, { 'ff(', '\taaa', ')' }, { 2, 1 }, type_keys, 'V', 'sa', 'f', 'ff<CR>')
+
+  -- General test in Operator-pending mode
+  validate_edit({ 'aaa' }, { 1, 0 }, { '(', '\taaa', ')' }, { 2, 1 }, type_keys, 'sa', 'ip', ')')
+
+  -- Respects `expandtab`
+  child.o.expandtab = true
+  child.o.shiftwidth = 3
+  validate({ 'aaa' }, { 1, 0 }, { '(', '   aaa', ')' }, { 2, 3 }, 'V')
+end
+
+--stylua: ignore
+T['Add surrounding']['respects `config.respect_selection_type` in blockwise mode'] = function()
+  -- NOTE: this doesn't work with mix of multibyte and normal characters,
+  -- as well as outside of text lines.
+  child.lua('MiniSurround.config.respect_selection_type = true')
+
+  local validate = function(before_lines, before_cursor, after_lines, after_cursor, selection_keys)
+    validate_edit(before_lines, before_cursor, after_lines, after_cursor, type_keys, selection_keys, 'sa', ')')
+  end
+
+  -- General test in Visual mode
+  validate({ 'aaa', 'bbb' }, { 1, 1 }, { 'a(a)a', 'b(b)b' }, { 1, 2 }, '<C-v>j')
+  validate({ 'aaaa', 'bbbb' }, { 1, 1 }, { 'a(aa)a', 'b(bb)b' }, { 1, 2 }, '<C-v>jl')
+
+  -- Works on single line
+  validate({ 'aaaa' }, { 1, 1 }, { 'a(aa)a' }, { 1, 2 }, '<C-v>l')
+
+  -- Works when selection is created in different directions
+  validate({ 'aaaa', 'bbbb' }, { 1, 2 }, { 'a(aa)a', 'b(bb)b' }, { 1, 2 }, '<C-v>jh')
+  validate({ 'aaaa', 'bbbb' }, { 2, 1 }, { 'a(aa)a', 'b(bb)b' }, { 1, 2 }, '<C-v>kl')
+  validate({ 'aaaa', 'bbbb' }, { 2, 2 }, { 'a(aa)a', 'b(bb)b' }, { 1, 2 }, '<C-v>kh')
+
+  -- Works with different surroundings
+  validate_edit({ 'aaa', 'bbb' }, { 1, 1 }, { 'aff(a)a', 'bff(b)b' }, { 1, 4 }, type_keys, '<C-v>j', 'sa', 'f', 'ff<CR>')
+
+  -- General test in Operator-pending mode
+  set_lines({ 'aaaaa', 'bbbbb' })
+
+  -- - Create mark to be able to perform non-trival movement
+  set_cursor(2, 3)
+  type_keys('ma')
+
+  set_cursor(1, 1)
+  type_keys('sa', '<C-v>', '`a', ')')
+  -- - As motion is end-exclusive, it registers end mark one column short.
+  eq(get_lines(), { 'a(aa)aa', 'b(bb)bb' })
+  eq(get_cursor(), { 1, 2 })
+end
+
 T['Add surrounding']['validates single character user input'] = function()
   validate_edit({ ' aaa ' }, { 1, 1 }, { ' aaa ' }, { 1, 1 }, type_keys, 'sa', 'iw', '<C-v>')
   eq(get_latest_message(), '(mini.surround) Input must be single character: alphanumeric, punctuation, or space.')
@@ -526,7 +607,6 @@ T['Add surrounding']['respects `vim.{g,b}.minisurround_disable`'] = new_set({
   parametrize = { { 'g' }, { 'b' } },
 }, {
   test = function(var_type)
-    child.ensure_normal_mode()
     child[var_type].minisurround_disable = true
 
     set_lines({ ' aaa ' })
@@ -538,6 +618,19 @@ T['Add surrounding']['respects `vim.{g,b}.minisurround_disable`'] = new_set({
     eq(get_cursor(), { 1, 3 })
   end,
 })
+
+T['Add surrounding']['respects `config.silent`'] = function()
+  child.lua('MiniSurround.config.silent = true')
+  child.set_size(10, 20)
+
+  set_lines({ ' aaa ' })
+  set_cursor(1, 1)
+
+  -- It should not show helper message after one idle second
+  type_keys('sa', 'iw')
+  sleep(1000 + 15)
+  child.expect_screenshot()
+end
 
 T['Add surrounding']['respects `vim.b.minisurround_config`'] = function()
   child.b.minisurround_config = { custom_surroundings = { ['<'] = { output = { left = '>', right = '<' } } } }
@@ -564,6 +657,44 @@ T['Delete surrounding']['works with dot-repeat'] = function()
   set_cursor(1, 5)
   type_keys('.')
   eq(get_lines(), { 'aaa bbb' })
+end
+
+--stylua: ignore
+T['Delete surrounding']['respects `config.respect_selection_type` in linewise mode'] = function()
+  child.lua('MiniSurround.config.respect_selection_type = true')
+
+  local validate = function(before_lines, before_cursor, after_lines, after_cursor)
+    validate_edit(before_lines, before_cursor, after_lines, after_cursor, type_keys, 'sd', ')')
+  end
+
+  -- General test
+  validate({ '(', '\taaa', ')' }, { 2, 0 }, { 'aaa' }, { 1, 0 })
+
+  -- Works when cursor is on any part of region
+  validate({ '(', '\taaa', ')' }, { 1, 0 }, { 'aaa' }, { 1, 0 })
+  validate({ '(', '\taaa', ')' }, { 3, 0 }, { 'aaa' }, { 1, 0 })
+
+  -- Correctly applies when it should
+  validate({ '(',   '\t\taaa', '\tbbb', ')' },   { 2, 2 }, { '\taaa', 'bbb' }, { 1, 1 })
+  validate({ '  (', '\t\taaa', '\tbbb', ')  ' }, { 2, 2 }, { '\taaa', 'bbb' }, { 1, 1 })
+
+  -- Correctly doesn't apply when it shouldn't
+  validate({ 'aaa',  '  ()  ', 'bbb' },  { 2, 2 }, { 'aaa', '    ',  'bbb' }, { 2, 2 })
+  validate({ 'aaa(', '\tbbb',  ')' },    { 2, 2 }, { 'aaa', '\tbbb', '' },    { 1, 2 })
+  validate({ '(',    '\tbbb',  ')ccc' }, { 2, 2 }, { '',    '\tbbb', 'ccc' }, { 1, 0 })
+
+  -- Correctly dedents
+  validate({ '(', 'aaa', ')' }, { 2, 0 }, { 'aaa' }, { 1, 0 })
+
+  -- Doesn't produce messages
+  validate({ '(', '\taa', '\tbb', '\tcc', ')' }, { 2, 1 }, { 'aa', 'bb', 'cc' }, { 1, 0 })
+  eq(child.cmd_capture('1messages'), '')
+
+  child.o.shiftwidth = 3
+  validate({ '(', '    aaa', ')' }, { 2, 0 }, { ' aaa' }, { 1, 1 })
+
+  child.o.expandtab = true
+  validate({ '(', '    aaa', ')' }, { 2, 0 }, { ' aaa' }, { 1, 1 })
 end
 
 T['Delete surrounding']['works in extended mappings'] = function()
@@ -746,6 +877,26 @@ T['Delete surrounding']['respects `vim.{g,b}.minisurround_disable`'] = new_set({
     eq(get_cursor(), { 1, 1 })
   end,
 })
+
+T['Delete surrounding']['respects `config.silent`'] = function()
+  child.lua('MiniSurround.config.silent = true')
+  child.set_size(10, 20)
+
+  child.o.timeoutlen = 50
+  local total_wait_time = 1000 + child.o.timeoutlen
+
+  set_lines({ '<aaa>' })
+  set_cursor(1, 1)
+
+  -- It should not show helper message after one idle second
+  type_keys('sd')
+  sleep(total_wait_time + 15)
+  child.expect_screenshot()
+
+  -- It should not show message about "No surrounding found"
+  type_keys(')')
+  child.expect_screenshot()
+end
 
 T['Delete surrounding']['respects `vim.b.minisurround_config`'] = function()
   child.b.minisurround_config = { custom_surroundings = { ['<'] = { input = { '>().-()<' } } } }
@@ -979,6 +1130,26 @@ T['Replace surrounding']['respects `vim.{g,b}.minisurround_disable`'] = new_set(
     eq(get_cursor(), { 1, 1 })
   end,
 })
+
+T['Replace surrounding']['respects `config.silent`'] = function()
+  child.lua('MiniSurround.config.silent = true')
+  child.set_size(10, 20)
+
+  child.o.timeoutlen = 50
+  local total_wait_time = 1000 + child.o.timeoutlen
+
+  set_lines({ '<aaa>' })
+  set_cursor(1, 1)
+
+  -- It should not show helper message after one idle second
+  type_keys('sr')
+  sleep(total_wait_time + 15)
+  child.expect_screenshot()
+
+  -- It should not show message about "No surrounding found"
+  type_keys(')')
+  child.expect_screenshot()
+end
 
 T['Replace surrounding']['respects `vim.b.minisurround_config`'] = function()
   child.b.minisurround_config = { custom_surroundings = { ['<'] = { output = { left = '>', right = '<' } } } }
@@ -1363,6 +1534,8 @@ T['Highlight surrounding']['works with multiline input surroundings'] = function
 end
 
 T['Highlight surrounding']['removes highlighting in correct buffer'] = function()
+  if child.fn.has('nvim-0.10') == 0 then MiniTest.skip('Screenshots are generated for Neovim>=0.10.') end
+
   child.set_size(5, 60)
   local test_duration = child.lua_get('MiniSurround.config.highlight_duration')
 

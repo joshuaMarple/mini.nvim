@@ -1,21 +1,26 @@
--- MIT License Copyright (c) 2022 Evgeni Chasnovski
-
--- Documentation ==============================================================
---- Generation of help files from EmmyLua-like annotations
+--- *mini.doc* Generate Neovim help files
+--- *MiniDoc*
+---
+--- MIT License Copyright (c) 2022 Evgeni Chasnovski
+---
+--- ==============================================================================
 ---
 --- Key design ideas:
 --- - Keep documentation next to code by writing EmmyLua-like annotation
 ---   comments. They will be parsed as is, so formatting should follow built-in
 ---   guide in |help-writing|. However, custom hooks are allowed at many
 ---   generation stages for more granular management of output help file.
+---
 --- - Generation is done by processing a set of ordered files line by line.
 ---   Each line can either be considered as a part of documentation block (if
 ---   it matches certain configurable pattern) or not (considered to be an
 ---   "afterline" of documentation block). See |MiniDoc.generate()| for more
 ---   details.
+---
 --- - Processing is done by using nested data structures (section, block, file,
 ---   doc) describing certain parts of help file. See |MiniDoc-data-structures|
 ---   for more details.
+---
 --- - Project specific script can be written as plain Lua file with
 ---   configuratble path. See |MiniDoc.generate()| for more details.
 ---
@@ -36,6 +41,8 @@
 --- You can override runtime config settings locally to buffer inside
 --- `vim.b.minidoc_config` which should have same structure as `MiniDoc.config`.
 --- See |mini.nvim-buffer-local-config| for more details.
+---
+--- To stop module from showing non-error feedback, set `config.silent = true`.
 ---
 --- # Tips~
 ---
@@ -63,16 +70,6 @@
 ---     - It takes more care about automating output formatting (like auto
 ---       indentation and line width fit). This plugin leans more to manual
 ---       formatting with option to supply customized post-processing hooks.
----
---- # Disabling~
----
---- To disable, set `g:minidoc_disable` (globally) or `b:minidoc_disable` (for
---- a buffer) to `v:true`. Considering high number of different scenarios and
---- customization intentions, writing exact rules for disabling module's
---- functionality is left to user. See |mini.nvim-disabling-recipes| for common
---- recipes.
----@tag mini.doc
----@tag MiniDoc
 
 --- Data structures
 ---
@@ -145,10 +142,19 @@ local H = {}
 
 --- Module setup
 ---
----@param config table Module config table. See |MiniDoc.config|.
+---@param config table|nil Module config table. See |MiniDoc.config|.
 ---
 ---@usage `require('mini.doc').setup({})` (replace `{}` with your `config` table)
 MiniDoc.setup = function(config)
+  -- TODO: Remove after Neovim<=0.6 support is dropped
+  if vim.fn.has('nvim-0.7') == 0 then
+    vim.notify(
+      '(mini.doc) Neovim<0.7 is soft deprecated (module works but not supported).'
+        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
+        .. ' Please update your Neovim version.'
+    )
+  end
+
   -- Export module
   _G.MiniDoc = MiniDoc
 
@@ -393,7 +399,12 @@ MiniDoc.config = {
     end,
     --minidoc_replace_end
 
-    -- Applied to after output help file is written. Takes doc as argument.
+    -- Applied before output file is written. Takes lines array as argument.
+    --minidoc_replace_start write_pre = --<function: currently returns its input>,
+    write_pre = function(l) return l end,
+    --minidoc_replace_end
+
+    -- Applied after output help file is written. Takes doc as argument.
     --minidoc_replace_start write_post = --<function: various convenience actions>,
     write_post = function(d)
       local output = d.info.output
@@ -423,6 +434,9 @@ MiniDoc.config = {
   -- Path (relative to current directory) to script which handles project
   -- specific help file generation (like custom input files, hooks, etc.).
   script_path = 'scripts/minidoc.lua',
+
+  -- Whether to disable showing non-error feedback
+  silent = false,
 }
 --minidoc_afterlines_end
 
@@ -517,8 +531,11 @@ MiniDoc.default_hooks = MiniDoc.config.hooks
 ---       adding any helpfile-related data (maybe like table of contents).
 --- - Collect all strings from sections in depth-first fashion (equivalent to
 ---   nested "for all files -> for all blocks -> for all sections -> for all
----   strings -> add string to output") and write them to output file. Strings
----   can have `\n` character indicating start of new line.
+---   strings -> add string to output"). Strings can have `\n` character
+---   indicating start of new line.
+--- - Modify collected strings with `MiniDoc.config.write_pre`. Takes strings
+---   from previous step as input and should return array of strings.
+--- - Write modified strings to output file.
 --- - Execute `MiniDoc.config.write_post` hook. This is useful for showing some
 ---   feedback and making actions involving newly updated help file (like
 ---   generate tags, etc.).
@@ -536,14 +553,14 @@ MiniDoc.default_hooks = MiniDoc.config.hooks
 --- output files with eventual call to `require('mini.doc').generate()` (with
 --- or without arguments).
 ---
----@param input table Array of file paths which will be processed in supplied
+---@param input table|nil Array of file paths which will be processed in supplied
 ---   order. Default: all '.lua' files from current directory following by all
 ---   such files in these subdirectories: 'lua/', 'after/', 'colors/'. Note:
 ---   any 'init.lua' file is placed before other files from the same directory.
----@param output string Path for output help file. Default:
+---@param output string|nil Path for output help file. Default:
 ---   `doc/<current_directory>.txt` (designed to be used for generating help
 ---   file for plugin).
----@param config table Configuration overriding parts of |MiniDoc.config|.
+---@param config table|nil Configuration overriding parts of |MiniDoc.config|.
 ---
 ---@return table Document structure which was generated and used for output
 ---   help file. In case `MiniDoc.config.script_path` was successfully used,
@@ -575,6 +592,10 @@ MiniDoc.generate = function(input, output, config)
 
   -- Gather string lines in depth-first fashion
   local help_lines = H.collect_strings(doc)
+
+  -- Execute pre-write hook
+  help_lines = config.hooks.write_pre(help_lines)
+  if not H.is_array_of(help_lines, H.is_string) then H.error('Output of `write_pre` should be array of strings.') end
 
   -- Write helpfile
   H.file_write(output, help_lines)
@@ -640,8 +661,8 @@ end
 ---@param struct table Block or section structure which after lines will be
 ---   converted to code.
 ---
----@return string Single string (using `\n` to separate lines) describing
----   afterlines as code block in help file.
+---@return string|nil Single string (using `\n` to separate lines) describing
+---   afterlines as code block in help file. If `nil`, input is not valid.
 MiniDoc.afterlines_to_code = function(struct)
   if not (type(struct) == 'table' and (struct.type == 'section' or struct.type == 'block')) then
     H.message('Input to `MiniDoc.afterlines_to_code()` should be either section or block.')
@@ -717,6 +738,7 @@ H.setup_config = function(config)
     default_section_id = { config.default_section_id, 'string' },
     hooks = { config.hooks, 'table' },
     script_path = { config.script_path, 'string' },
+    silent = { config.silent, 'boolean' },
   })
 
   vim.validate({
@@ -727,6 +749,7 @@ H.setup_config = function(config)
     ['hooks.block_post'] = { config.hooks.block_post, 'function' },
     ['hooks.file'] = { config.hooks.file, 'function' },
     ['hooks.doc'] = { config.hooks.doc, 'function' },
+    ['hooks.write_pre'] = { config.hooks.write_pre, 'function' },
     ['hooks.write_post'] = { config.hooks.write_post, 'function' },
   })
 
@@ -754,8 +777,6 @@ H.setup_config = function(config)
 end
 
 H.apply_config = function(config) MiniDoc.config = config end
-
-H.is_disabled = function() return vim.g.minidoc_disable == true or vim.b.minidoc_disable == true end
 
 H.get_config =
   function(config) return vim.tbl_deep_extend('force', MiniDoc.config, vim.b.minidoc_config or {}, config or {}) end
@@ -798,14 +819,19 @@ H.default_input = function()
     -- Use full paths
     files = vim.tbl_map(function(x) return vim.fn.fnamemodify(x, ':p') end, files)
 
-    -- Put 'init.lua' first among files from same directory
+    -- Ensure consistent order
     table.sort(files, function(a, b)
-      if vim.fn.fnamemodify(a, ':h') == vim.fn.fnamemodify(b, ':h') then
-        if vim.fn.fnamemodify(a, ':t') == 'init.lua' then return true end
-        if vim.fn.fnamemodify(b, ':t') == 'init.lua' then return false end
+      local a_dir, b_dir = vim.fn.fnamemodify(a, ':h'), vim.fn.fnamemodify(b, ':h')
+
+      -- Put 'init.lua' first among files from same directory
+      if a_dir == b_dir then
+        local a_basename, b_basename = vim.fn.fnamemodify(a, ':t'), vim.fn.fnamemodify(b, ':t')
+        if a_basename == 'init.lua' then return true end
+        if b_basename == 'init.lua' then return false end
+        return a_basename < b_basename
       end
 
-      return a < b
+      return a_dir < b_dir
     end)
     table.insert(res, files)
   end
@@ -1244,6 +1270,8 @@ end
 
 -- Utilities ------------------------------------------------------------------
 H.echo = function(msg, is_important)
+  if H.get_config().silent then return end
+
   -- Construct message chunks
   msg = type(msg) == 'string' and { { msg } } or msg
   table.insert(msg, 1, { '(mini.doc) ', 'WarningMsg' })
@@ -1309,5 +1337,15 @@ H.file_write = function(path, lines)
 end
 
 H.full_path = function(path) return vim.fn.resolve(vim.fn.fnamemodify(path, ':p')) end
+
+H.is_array_of = function(x, predicate)
+  if not vim.tbl_islist(x) then return false end
+  for _, v in ipairs(x) do
+    if not predicate(v) then return false end
+  end
+  return true
+end
+
+H.is_string = function(x) return type(x) == 'string' end
 
 return MiniDoc

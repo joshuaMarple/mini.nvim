@@ -1,15 +1,20 @@
--- MIT License Copyright (c) 2021 Evgeni Chasnovski, Adam Blažek
-
--- Documentation ==============================================================
---- Smarter forward/backward jumping to a single character.
+--- *mini.jump* Jump to next/previous single character
+--- *MiniJump*
+---
+--- MIT License Copyright (c) 2021 Evgeni Chasnovski, Adam Blažek
+---
+--- ==============================================================================
 ---
 --- Features:
 --- - Extend f, F, t, T to work on multiple lines.
+---
 --- - Repeat jump by pressing f, F, t, T again. It is reset when cursor moved
 ---   as a result of not jumping or timeout after idle time (duration
 ---   customizable).
+---
 --- - Highlight (after customizable delay) all possible target characters and
 ---   stop it after some (customizable) idle time.
+---
 --- - Normal, Visual, and Operator-pending (with full dot-repeat) modes are
 ---   supported.
 ---
@@ -31,6 +36,8 @@
 --- `vim.b.minijump_config` which should have same structure as
 --- `MiniJump.config`. See |mini.nvim-buffer-local-config| for more details.
 ---
+--- To stop module from showing non-error feedback, set `config.silent = true`.
+---
 --- # Highlight groups~
 ---
 --- * `MiniJump` - all possible cursor positions.
@@ -39,21 +46,19 @@
 ---
 --- # Disabling~
 ---
---- To disable core functionality, set `g:minijump_disable` (globally) or
---- `b:minijump_disable` (for a buffer) to `v:true`. Considering high number of
+--- To disable core functionality, set `vim.g.minijump_disable` (globally) or
+--- `vim.b.minijump_disable` (for a buffer) to `true`. Considering high number of
 --- different scenarios and customization intentions, writing exact rules for
 --- disabling module's functionality is left to user. See
 --- |mini.nvim-disabling-recipes| for common recipes.
----@tag mini.jump
----@tag MiniJump
 
----@alias __target string The string to jump to.
----@alias __backward boolean Whether to jump backward.
----@alias __till boolean Whether to jump just before/after the match instead of
+---@alias __jump_target string|nil The string to jump to.
+---@alias __jump_backward boolean|nil Whether to jump backward.
+---@alias __jump_till boolean|nil Whether to jump just before/after the match instead of
 ---   exactly on target. This includes positioning cursor past the end of
 ---   previous/current line. Note that with backward jump this might lead to
 ---   cursor being on target if can't be put past the line.
----@alias __n_times number Number of times to perform consecutive jumps.
+---@alias __jump_n_times number|nil Number of times to perform consecutive jumps.
 
 -- Module definition ==========================================================
 local MiniJump = {}
@@ -61,10 +66,19 @@ local H = {}
 
 --- Module setup
 ---
----@param config table Module config table. See |MiniJump.config|.
+---@param config table|nil Module config table. See |MiniJump.config|.
 ---
 ---@usage `require('mini.jump').setup({})` (replace `{}` with your `config` table)
 MiniJump.setup = function(config)
+  -- TODO: Remove after Neovim<=0.6 support is dropped
+  if vim.fn.has('nvim-0.7') == 0 then
+    vim.notify(
+      '(mini.jump) Neovim<0.7 is soft deprecated (module works but not supported).'
+        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
+        .. ' Please update your Neovim version.'
+    )
+  end
+
   -- Export module
   _G.MiniJump = MiniJump
 
@@ -111,6 +125,9 @@ MiniJump.config = {
     -- Delay between jump and automatic stop if idle (no jump is done)
     idle_stop = 10000000,
   },
+
+  -- Whether to disable showing non-error feedback
+  silent = false,
 }
 --minidoc_afterlines_end
 
@@ -123,10 +140,10 @@ MiniJump.config = {
 ---
 ---@class JumpingState
 ---
----@field target __target
----@field backward __backward
----@field till __till
----@field n_times __n_times
+---@field target __jump_target
+---@field backward __jump_backward
+---@field till __jump_till
+---@field n_times __jump_n_times
 ---@field mode string Mode of latest jump (output of |mode()| with non-zero argument).
 ---@field jumping boolean Whether module is currently in "jumping mode": usage of
 ---   |MiniJump.smart_jump| and all mappings won't require target.
@@ -150,10 +167,10 @@ MiniJump.state = {
 ---
 --- All default values are taken from |MiniJump.state| to emulate latest jump.
 ---
----@param target __target
----@param backward __backward
----@param till __till
----@param n_times __n_times
+---@param target __jump_target
+---@param backward __jump_backward
+---@param till __jump_till
+---@param n_times __jump_n_times
 MiniJump.jump = function(target, backward, till, n_times)
   if H.is_disabled() then return end
 
@@ -210,8 +227,8 @@ end
 ---
 --- All default values are taken from |MiniJump.state| to emulate latest jump.
 ---
----@param backward __backward
----@param till __till
+---@param backward __jump_backward
+---@param till __jump_till
 MiniJump.smart_jump = function(backward, till)
   if H.is_disabled() then return end
 
@@ -242,8 +259,8 @@ end
 ---
 --- All default values are taken from |MiniJump.state| to emulate latest jump.
 ---
----@param backward __backward
----@param till __till
+---@param backward __jump_backward
+---@param till __jump_till
 MiniJump.expr_jump = function(backward, till)
   if H.is_disabled() then return '' end
 
@@ -251,7 +268,7 @@ MiniJump.expr_jump = function(backward, till)
   -- mode. Dot-repeat will be implemented via expression-mapping.
   local target = H.get_target()
   -- Stop if user supplied invalid target
-  if target == nil then return end
+  if target == nil then return '<Esc>' end
   H.update_state(target, backward, till, vim.v.count1)
 
   return vim.api.nvim_replace_termcodes('v<Cmd>lua MiniJump.jump()<CR>', true, true, true)
@@ -322,6 +339,7 @@ H.setup_config = function(config)
   vim.validate({
     mappings = { config.mappings, 'table' },
     delay = { config.delay, 'table' },
+    silent = { config.silent, 'boolean' },
   })
 
   vim.validate({
@@ -441,7 +459,7 @@ H.unhighlight = function()
   end
 end
 
----@param pattern string Highlight pattern to check for. If `nil`, checks for
+---@param pattern string|nil Highlight pattern to check for. If `nil`, checks for
 ---   any highlighting registered in current window.
 ---@private
 H.is_highlighting = function(pattern)
@@ -453,6 +471,8 @@ end
 
 -- Utilities ------------------------------------------------------------------
 H.echo = function(msg, is_important)
+  if H.get_config().silent then return end
+
   -- Construct message chunks
   msg = type(msg) == 'string' and { { msg } } or msg
   table.insert(msg, 1, { '(mini.jump) ', 'WarningMsg' })

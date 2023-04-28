@@ -1,8 +1,9 @@
+*mini.move* Move any selection in any direction
+*MiniMove*
+
+MIT License Copyright (c) 2023 Evgeni Chasnovski
+
 ==============================================================================
-------------------------------------------------------------------------------
-                                                                     *mini.move*
-                                                                      *MiniMove*
-Move any selection in any direction
 
 Features:
 - Works in two modes:
@@ -15,11 +16,15 @@ Features:
         - Vertical movement gets reindented with |=|.
         - Horizontal movement is improved indent/dedent with |>| / |<|.
         - Cursor moves along with selection.
+
 - Provides both mappings and Lua functions for motions. See
   |MiniMove.move_selection()| and |MiniMove.move_line()|.
+
 - Respects |v:count|. Movement mappings can be preceded by a number which
   multiplies command effect.
+
 - All consecutive moves (regardless of direction) can be undone by a single |u|.
+
 - Respects preferred column for vertical movement. It will vertically move
   selection as how cursor is moving (not strictly vertically if target
   column is not present in target line).
@@ -58,8 +63,8 @@ as `MiniMove.config`. See |mini.nvim-buffer-local-config| for more details.
 
 # Disabling~
 
-To disable, set `g:minimove_disable` (globally) or `b:minimove_disable`
-(for a buffer) to `v:true`. Considering high number of different scenarios
+To disable, set `vim.g.minimove_disable` (globally) or `vim.b.minimove_disable`
+(for a buffer) to `true`. Considering high number of different scenarios
 and customization intentions, writing exact rules for disabling module's
 functionality is left to user. See |mini.nvim-disabling-recipes| for common
 recipes.
@@ -147,7 +152,7 @@ Notes:
 
 Parameters~
 {direction} `(string)` One of "left", "down", "up", "right".
-{opts} `(table)` Options. Same structure as `options` in |MiniMove.config|
+{opts} `(table|nil)` Options. Same structure as `options` in |MiniMove.config|
   (with its values as defaults) plus these allowed extra fields:
   - <n_times> (number) - number of times to try to make a move.
     Default: |v:count1|.
@@ -167,7 +172,7 @@ Notes:
 
 Parameters~
 {direction} `(string)` One of "left", "down", "up", "right".
-{opts} `(table)` Options. Same structure as `options` in |MiniMove.config|
+{opts} `(table|nil)` Options. Same structure as `options` in |MiniMove.config|
   (with its values as defaults) plus these allowed extra fields:
   - <n_times> (number) - number of times to try to make a move.
     Default: |v:count1|.

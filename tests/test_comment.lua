@@ -68,6 +68,9 @@ T['setup()']['creates `config` field'] = function()
   -- Check default values
   local expect_config = function(field, value) eq(child.lua_get('MiniComment.config.' .. field), value) end
 
+  expect_config('options.ignore_blank_line', false)
+  expect_config('options.start_of_line', false)
+  expect_config('options.pad_comment_parts', true)
   expect_config('mappings.comment', 'gc')
   expect_config('mappings.comment_line', 'gcc')
   expect_config('mappings.textobject', 'gc')
@@ -87,6 +90,10 @@ T['setup()']['validates `config` argument'] = function()
   end
 
   expect_config_error('a', 'config', 'table')
+  expect_config_error({ options = 'a' }, 'options', 'table')
+  expect_config_error({ options = { ignore_blank_line = 1 } }, 'options.ignore_blank_line', 'boolean')
+  expect_config_error({ options = { start_of_line = 1 } }, 'options.start_of_line', 'boolean')
+  expect_config_error({ options = { pad_comment_parts = 1 } }, 'options.pad_comment_parts', 'boolean')
   expect_config_error({ mappings = 'a' }, 'mappings', 'table')
   expect_config_error({ mappings = { comment = 1 } }, 'mappings.comment', 'string')
   expect_config_error({ mappings = { comment_line = 1 } }, 'mappings.comment_line', 'string')
@@ -196,6 +203,75 @@ T['toggle_lines()']['correctly detects comment/uncomment'] = function()
   eq(get_lines(), { '#', '# aa', '# # aa', '# # aa', '# aa', '#' })
 end
 
+T['toggle_lines()']['respects `config.options.start_of_line`'] = function()
+  child.lua('MiniComment.config.options.start_of_line = true')
+  local lines = { ' # aa', '  # aa', '#aa', '# aa', '#  aa' }
+
+  -- Should recognize as commented only lines with zero indent
+  set_lines(lines)
+  child.lua('MiniComment.toggle_lines(1, 2)')
+  eq(get_lines(), { '#  # aa', '#   # aa', '#aa', '# aa', '#  aa' })
+  child.lua('MiniComment.toggle_lines(1, 2)')
+  eq(get_lines(), lines)
+
+  set_lines(lines)
+  child.lua('MiniComment.toggle_lines(3, 5)')
+  eq(get_lines(), { ' # aa', '  # aa', 'aa', 'aa', ' aa' })
+  child.lua('MiniComment.toggle_lines(3, 5)')
+  eq(get_lines(), { ' # aa', '  # aa', '# aa', '# aa', '#  aa' })
+end
+
+T['toggle_lines()']['respects `config.options.ignore_blank_line`'] = function()
+  child.lua('MiniComment.config.options.ignore_blank_line = true')
+  local lines = { '  aa', '', '  aa', '  ', '  aa' }
+
+  -- Should not add comment to blank (empty or with only whitespace) lines
+  set_lines(lines)
+  child.lua('MiniComment.toggle_lines(1, 5)')
+  eq(get_lines(), { '  # aa', '', '  # aa', '  ', '  # aa' })
+
+  -- Should ignore blank lines when deciding comment/uncomment action
+  child.lua('MiniComment.toggle_lines(1, 5)')
+  eq(get_lines(), lines)
+end
+
+T['toggle_lines()']['respects `config.options.pad_comment_parts`'] = function()
+  child.lua('MiniComment.config.options.pad_comment_parts = false')
+
+  local validate = function(lines_before, lines_after)
+    set_lines(lines_before)
+    local lua_command = string.format('MiniComment.toggle_lines(1, %s)', #lines_before)
+    child.lua(lua_command)
+    eq(get_lines(), lines_after)
+  end
+
+  -- No whitespace in 'commentstring'
+  child.bo.commentstring = '#%s#'
+
+  -- - Should correctly comment
+  validate({ 'aa', '  aa', 'aa  ' }, { '#aa#', '#  aa#', '#aa  #' })
+  validate({ '\taa', '\taa', '\taa\t' }, { '\t#aa#', '\t#aa#', '\t#aa\t#' })
+
+  -- - Should correctly uncomment
+  validate({ '# aa #', '#aa #', '# aa#', '#aa#' }, { ' aa ', 'aa ', ' aa', 'aa' })
+  validate({ '#aa#', '  #aa#' }, { 'aa', '  aa' })
+  validate({ '\t#aa#', '\t#aa#' }, { '\taa', '\taa' })
+
+  -- Extra whitespace in 'commentstring'
+  child.bo.commentstring = '#  %s  #'
+
+  -- - Should correctly comment
+  validate({ 'aa', '  aa', 'aa  ' }, { '#  aa  #', '#    aa  #', '#  aa    #' })
+  validate({ '\taa', '\taa', '\taa\t' }, { '\t#  aa  #', '\t#  aa  #', '\t#  aa\t  #' })
+
+  --validate({'# aa  #', '# aa #', '#  aa #'}, {'#  # aa  #  #', '#  # aa #  #', '#  #  aa #  #'})
+  --
+  -- - Should correctly uncomment
+  validate({ '#  aa  #', '#   a   #' }, { 'aa', ' a ' })
+  validate({ '  #  aa  #', '  #   a   #' }, { '  aa', '   a ' })
+  validate({ '\t#  aa  #', '\t#  aa  #' }, { '\taa', '\taa' })
+end
+
 T['toggle_lines()']['uncomments on inconsistent indent levels'] = function()
   set_lines({ '# aa', ' # aa', '  # aa' })
   child.lua('MiniComment.toggle_lines(1, 3)')
@@ -258,17 +334,11 @@ T['toggle_lines()']['stops when hook returns `false`'] = function()
 end
 
 T['toggle_lines()']['respects `vim.b.minicomment_config`'] = function()
-  if vim.fn.has('nvim-0.7') == 0 then
-    MiniTest.skip('Function values inside buffer variables are not supported in Neovim<0.7.')
-  end
-
-  set_lines({ 'aa', 'aa' })
-  reload_with_hooks()
-  child.lua('vim.b.minicomment_config = { hooks = { pre = function() _G.pre_n = _G.pre_n + 10 end } }')
+  child.lua('vim.b.minicomment_config = { options = { start_of_line = true } }')
+  set_lines({ '  # aa', '  # aa' })
 
   child.lua('MiniComment.toggle_lines(1, 2)')
-  eq(child.lua_get('_G.pre_n'), 10)
-  eq(child.lua_get('_G.post_n'), 1)
+  eq(get_lines(), { '#   # aa', '#   # aa' })
 end
 
 -- Integration tests ==========================================================
@@ -553,6 +623,21 @@ T['Comment textobject']['allows dot-repeat'] = function()
   set_cursor(3, 0)
   type_keys('.')
   eq(get_lines(), { 'aa', 'aa' })
+end
+
+T['Comment textobject']['respects `config.options.start_of_line`'] = function()
+  child.lua('MiniComment.config.options.start_of_line = true')
+
+  local lines = { ' # aa', '  # aa', '#aa', '# aa', '#  aa' }
+  set_lines(lines)
+
+  set_cursor(1, 0)
+  type_keys('d', 'gc')
+  eq(get_lines(), lines)
+
+  set_cursor(3, 0)
+  type_keys('d', 'gc')
+  eq(get_lines(), { ' # aa', '  # aa' })
 end
 
 T['Comment textobject']['respects `vim.{g,b}.minicomment_disable`'] = new_set({

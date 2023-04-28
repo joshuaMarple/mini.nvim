@@ -1,19 +1,24 @@
--- MIT License Copyright (c) 2021 Evgeni Chasnovski
-
--- Documentation ==============================================================
---- Minimal and fast autopairs.
+--- *mini.pairs* Autopairs
+--- *MiniPairs*
+---
+--- MIT License Copyright (c) 2021 Evgeni Chasnovski
+---
+--- ==============================================================================
 ---
 --- Features:
 --- - Functionality to work with 'paired' characters conditional on cursor's
 ---   neighborhood (two characters to its left and right).
+---
 --- - Usage should be through making appropriate mappings using |MiniPairs.map|
 ---   or in |MiniPairs.setup| (for global mapping), |MiniPairs.map_buf| (for
 ---   buffer mapping).
+---
 --- - Pairs get automatically registered to be recognized by `<BS>` and `<CR>`.
 ---
 --- What it doesn't do:
 --- - It doesn't support multiple characters as "open" and "close" symbols. Use
 ---   snippets for that.
+---
 --- - It doesn't support dependency on filetype. Use |i_CTRL-V| to insert
 ---   single symbol or `autocmd` command or 'after/ftplugin' approach to:
 ---     - `lua MiniPairs.map_buf(0, 'i', <*>, <pair_info>)` : make new mapping
@@ -67,18 +72,16 @@
 ---
 --- # Disabling~
 ---
---- To disable, set `g:minipairs_disable` (globally) or `b:minipairs_disable`
---- (for a buffer) to `v:true`. Considering high number of different scenarios
+--- To disable, set `vim.g.minipairs_disable` (globally) or `vim.b.minipairs_disable`
+--- (for a buffer) to `true`. Considering high number of different scenarios
 --- and customization intentions, writing exact rules for disabling module's
 --- functionality is left to user. See |mini.nvim-disabling-recipes| for common
 --- recipes.
----@tag mini.pairs
----@tag MiniPairs
 
----@alias __neigh_pattern string Pattern for two neighborhood characters ("\r" line
----   start, "\n" - line end).
----@alias __pair string String with two characters representing pair.
----@alias __unregister_pair string Pair which should be unregistered from both
+---@alias __pairs_neigh_pattern string|nil Pattern for two neighborhood characters.
+---   Character "\r" indicates line start, "\n" - line end.
+---@alias __pairs_pair string String with two characters representing pair.
+---@alias __pairs_unregistered_pair string Pair which should be unregistered from both
 ---   `<BS>` and `<CR>`. Should be explicitly supplied to avoid confusion.
 ---   Supply `''` to not unregister pair.
 
@@ -88,10 +91,19 @@ local H = {}
 
 --- Module setup
 ---
----@param config table Module config table. See |MiniPairs.config|.
+---@param config table|nil Module config table. See |MiniPairs.config|.
 ---
 ---@usage `require('mini.completion').setup({})` (replace `{}` with your `config` table)
 MiniPairs.setup = function(config)
+  -- TODO: Remove after Neovim<=0.6 support is dropped
+  if vim.fn.has('nvim-0.7') == 0 then
+    vim.notify(
+      '(mini.pairs) Neovim<0.7 is soft deprecated (module works but not supported).'
+        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
+        .. ' Please update your Neovim version.'
+    )
+  end
+
   -- Export module
   _G.MiniPairs = MiniPairs
 
@@ -166,7 +178,7 @@ MiniPairs.config = {
 ---@param mode string `mode` for |nvim_set_keymap()|.
 ---@param lhs string `lhs` for |nvim_set_keymap()|.
 ---@param pair_info table Table with pair information.
----@param opts table Optional table `opts` for |nvim_set_keymap()|. Elements
+---@param opts table|nil Optional table `opts` for |nvim_set_keymap()|. Elements
 ---   `expr` and `noremap` won't be recognized (`true` by default).
 MiniPairs.map = function(mode, lhs, pair_info, opts)
   pair_info = H.validate_pair_info(pair_info)
@@ -194,7 +206,7 @@ end
 ---@param mode string `mode` for |nvim_buf_set_keymap()|.
 ---@param lhs string `lhs` for |nvim_buf_set_keymap()|.
 ---@param pair_info table Table with pair information.
----@param opts table Optional table `opts` for |nvim_buf_set_keymap()|.
+---@param opts table|nil Optional table `opts` for |nvim_buf_set_keymap()|.
 ---   Elements `expr` and `noremap` won't be recognized (`true` by default).
 MiniPairs.map_buf = function(buffer, mode, lhs, pair_info, opts)
   pair_info = H.validate_pair_info(pair_info)
@@ -214,7 +226,7 @@ end
 ---
 ---@param mode string `mode` for |nvim_del_keymap()|.
 ---@param lhs string `lhs` for |nvim_del_keymap()|.
----@param pair __unregister_pair
+---@param pair __pairs_unregistered_pair
 MiniPairs.unmap = function(mode, lhs, pair)
   -- `pair` should be supplied explicitly
   vim.validate({ pair = { pair, 'string' } })
@@ -237,7 +249,7 @@ end
 ---@param buffer number `buffer` for |nvim_buf_del_keymap()|.
 ---@param mode string `mode` for |nvim_buf_del_keymap()|.
 ---@param lhs string `lhs` for |nvim_buf_del_keymap()|.
----@param pair __unregister_pair
+---@param pair __pairs_unregistered_pair
 MiniPairs.unmap_buf = function(buffer, mode, lhs, pair)
   -- `pair` should be supplied explicitly
   vim.validate({ pair = { pair, 'string' } })
@@ -257,8 +269,10 @@ end
 ---
 --- Used inside |MiniPairs.map| and |MiniPairs.map_buf| for an actual mapping.
 ---
----@param pair __pair
----@param neigh_pattern __neigh_pattern
+---@param pair __pairs_pair
+---@param neigh_pattern __pairs_neigh_pattern
+---
+---@return string Keys performing "open" action.
 MiniPairs.open = function(pair, neigh_pattern)
   if H.is_disabled() or not H.neigh_match(neigh_pattern) then return pair:sub(1, 1) end
 
@@ -275,8 +289,10 @@ end
 ---
 --- Used inside |MiniPairs.map| and |MiniPairs.map_buf| for an actual mapping.
 ---
----@param pair __pair
----@param neigh_pattern __neigh_pattern
+---@param pair __pairs_pair
+---@param neigh_pattern __pairs_neigh_pattern
+---
+---@return string Keys performing "close" action.
 MiniPairs.close = function(pair, neigh_pattern)
   if H.is_disabled() or not H.neigh_match(neigh_pattern) then return pair:sub(2, 2) end
 
@@ -297,8 +313,10 @@ end
 ---
 --- Used inside |MiniPairs.map| and |MiniPairs.map_buf| for an actual mapping.
 ---
----@param pair __pair
----@param neigh_pattern __neigh_pattern
+---@param pair __pairs_pair
+---@param neigh_pattern __pairs_neigh_pattern
+---
+---@return string Keys performing "closeopen" action.
 MiniPairs.closeopen = function(pair, neigh_pattern)
   if H.is_disabled() or H.get_cursor_neigh(1, 1) ~= pair:sub(2, 2) then
     return MiniPairs.open(pair, neigh_pattern)
@@ -309,15 +327,30 @@ end
 
 --- Process |<BS>|
 ---
---- Used as |map-expr| mapping for `<BS>`. It removes whole pair (via
---- `<BS><Del>`) if neighborhood is equal to a whole pair recognized for
---- current buffer. Pair is recognized for current buffer if it is registered
---- for global or current buffer mapping. Pair is registered as a result of
---- calling |MiniPairs.map| or |MiniPairs.map_buf|.
+--- Used as |map-expr| mapping for `<BS>` in Insert mode. It removes whole pair
+--- (via executing `<Del>` after input key) if neighborhood is equal to a whole
+--- pair recognized for current buffer. Pair is recognized for current buffer
+--- if it is registered for global or current buffer mapping. Pair is
+--- registered as a result of calling |MiniPairs.map| or |MiniPairs.map_buf|.
 ---
 --- Mapped by default inside |MiniPairs.setup|.
-MiniPairs.bs = function()
-  local res = H.keys.bs
+---
+--- This can be used to modify other Insert mode keys to respect neighborhood
+--- pair. Examples: >
+---
+---   local map_bs = function(lhs, rhs)
+---     vim.keymap.set('i', lhs, rhs, { expr = true, replace_keycodes = false })
+---   end
+---
+---   map_bs('<C-h>', 'v:lua.MiniPairs.bs()')
+---   map_bs('<C-w>', 'v:lua.MiniPairs.bs("\23")')
+---   map_bs('<C-u>', 'v:lua.MiniPairs.bs("\21")')
+---
+---@param key string|nil Key to use. Default: `<BS>`.
+---
+---@return string Keys performing "backspace" action.
+MiniPairs.bs = function(key)
+  local res = key or H.keys.bs
 
   local neigh = H.get_cursor_neigh(0, 1)
   if not H.is_disabled() and H.is_pair_registered(neigh, vim.fn.mode(), 0, 'bs') then
@@ -336,8 +369,12 @@ end
 --- registered as a result of calling |MiniPairs.map| or |MiniPairs.map_buf|.
 ---
 --- Mapped by default inside |MiniPairs.setup|.
-MiniPairs.cr = function()
-  local res = H.keys.cr
+---
+---@param key string|nil Key to use. Default: `<CR>`.
+---
+---@return string Keys performing "new line" action.
+MiniPairs.cr = function(key)
+  local res = key or H.keys.cr
 
   local neigh = H.get_cursor_neigh(0, 1)
   if not H.is_disabled() and H.is_pair_registered(neigh, vim.fn.mode(), 0, 'cr') then

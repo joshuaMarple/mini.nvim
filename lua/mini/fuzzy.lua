@@ -1,7 +1,19 @@
--- MIT License Copyright (c) 2021 Evgeni Chasnovski
-
--- Documentation ==============================================================
---- Minimal and fast fuzzy matching.
+--- *mini.fuzzy* Fuzzy matching
+--- *MiniFuzzy*
+---
+--- MIT License Copyright (c) 2021 Evgeni Chasnovski
+---
+--- ==============================================================================
+---
+--- Features:
+--- - Minimal and fast fuzzy matching algorithm which prioritizes match width.
+---
+--- - Functions to for common fuzzy matching operations:
+---     - |MiniFuzzy.match()|.
+---     - |MiniFuzzy.filtersort()|.
+---     - |MiniFuzzy.process_lsp_items()|.
+---
+--- - Generator of |telescope.nvim| sorter: |MiniFuzzy.get_telescope_sorter()|.
 ---
 --- # Setup~
 ---
@@ -23,8 +35,6 @@
 ---    but simple examples should work.
 --- 2. Smart case is used: case insensitive if input word (which is usually a
 ---     user input) is all lower case. Case sensitive otherwise.
----@tag mini.fuzzy
----@tag MiniFuzzy
 
 --- # Algorithm design~
 ---
@@ -60,10 +70,19 @@ local H = {}
 
 --- Module setup
 ---
----@param config table Module config table. See |MiniFuzzy.config|.
+---@param config table|nil Module config table. See |MiniFuzzy.config|.
 ---
 ---@usage `require('mini.fuzzy').setup({})` (replace `{}` with your `config` table)
 MiniFuzzy.setup = function(config)
+  -- TODO: Remove after Neovim<=0.6 support is dropped
+  if vim.fn.has('nvim-0.7') == 0 then
+    vim.notify(
+      '(mini.fuzzy) Neovim<0.7 is soft deprecated (module works but not supported).'
+        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
+        .. ' Please update your Neovim version.'
+    )
+  end
+
   -- Export module
   _G.MiniFuzzy = MiniFuzzy
 
@@ -135,7 +154,7 @@ end
 
 --- Fuzzy matching for `lsp_completion.process_items` of |MiniCompletion.config|
 ---
----@param items table Lua array with LSP 'textDocument/completion' response items.
+---@param items table Array with LSP 'textDocument/completion' response items.
 ---@param base string Word to complete.
 MiniFuzzy.process_lsp_items = function(items, base)
   -- Extract completion words from items
@@ -156,7 +175,7 @@ end
 --- Designed to be used as value for |telescope.defaults.file_sorter| and
 --- |telescope.defaults.generic_sorter| inside `setup()` call.
 ---
----@param opts table Options (currently not used).
+---@param opts table|nil Options (currently not used).
 ---
 ---@usage >
 ---   require('telescope').setup({
@@ -233,7 +252,7 @@ H.get_config =
 ---@param letters table Array of letters from input word
 ---@param candidate string String of interest
 ---
----@return table Table with matched positions (in `candidate`) if there is a
+---@return table|nil Table with matched positions (in `candidate`) if there is a
 ---   match, `nil` otherwise.
 ---@private
 H.find_best_positions = function(letters, candidate)

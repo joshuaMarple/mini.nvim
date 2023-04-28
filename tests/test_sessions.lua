@@ -22,7 +22,7 @@ local unload_module = function() child.mini_unload('sessions') end
 local reload_module = function(config) unload_module(); load_module(config) end
 local reload_from_strconfig = function(strconfig) unload_module(); child.mini_load_strconfig('sessions', strconfig) end
 local set_lines = function(...) return child.set_lines(...) end
-local make_path = function(...) return table.concat({...}, path_sep):gsub(path_sep .. path_sep, path_sep) end
+local make_path = function(...) local res = table.concat({...}, path_sep):gsub(path_sep .. path_sep, path_sep); return res end
 local cd = function(...) child.cmd('cd ' .. make_path(...)) end
 local poke_eventloop = function() child.api.nvim_eval('1') end
 local sleep = function(ms) vim.loop.sleep(ms); poke_eventloop() end
@@ -33,6 +33,9 @@ local cleanup_directories = function()
   -- Cleanup files for directories to have invariant properties
   -- Ensure 'empty' directory doesn't exist
   child.fn.delete(empty_dir_path, 'rf')
+
+  -- Ensure 'missing-directory' doesn't exist
+  child.fn.delete('tests/dir-sessions/missing-directory', 'rf')
 
   -- Ensure 'global' does not contain file 'Session.vim'
   local files = { 'tests/dir-sessions/global/Session.vim' }
@@ -268,9 +271,17 @@ T['setup()']['allows empty string for `config.directory`'] = function()
   eq(child.lua_get('MiniSessions.detected'), {})
 end
 
-T['setup()']['gives feedback about absent `config.directory`'] = function()
-  reload_module({ directory = 'aaa' })
-  expect.match(get_latest_message(), '%(mini%.sessions%).*aaa.*is not a directory path')
+T['setup()']['creates missing `config.directory`'] = function()
+  local directory = 'tests/dir-sessions/missing-directory'
+
+  eq(child.fn.isdirectory(directory), 0)
+  reload_module({ directory = directory })
+  eq(child.fn.isdirectory(directory), 1)
+end
+
+T['setup()']['does not create `config.directory` if it is an existing file'] = function()
+  reload_module({ directory = 'lua/mini/sessions.lua' })
+  expect.match(get_latest_message(), '%(mini%.sessions%).*lua/mini/sessions%.lua.*is not a directory path')
 end
 
 T['setup()']['respects `config.file`'] = function()
@@ -322,6 +333,22 @@ T['read()']['accepts only name of detected session'] = function()
     '%(mini%.sessions%) "session%-absent" is not a name for detected session'
   )
   validate_no_session_loaded()
+end
+
+T['read()']['makes detected sessions up to date'] = function()
+  local new_session = 'tests/dir-sessions/global/new_session'
+  MiniTest.finally(function() vim.fn.delete(new_session) end)
+
+  -- Detect sessions without new session
+  reload_module({ autowrite = false, directory = 'tests/dir-sessions/global' })
+  eq(child.lua_get('MiniSessions.detected.new_session == nil'), true)
+
+  -- Create new session file manually and try to read it directly without
+  -- reloading whole module.
+  child.fn.writefile({ 'lua _G.session_file = ' .. vim.inspect(new_session) }, new_session)
+
+  child.lua([[MiniSessions.read('new_session')]])
+  validate_session_loaded('global/new_session')
 end
 
 local setup_unsaved_buffers = function()
@@ -694,21 +721,20 @@ T['delete()']['deletes from global directory'] = function()
   eq(child.fn.filereadable(path), 0)
 end
 
-T['delete()']['deletes only detected session'] = function()
-  local session_dir = populate_sessions()
-  cd(session_dir)
-  reload_module({ directory = session_dir })
+T['delete()']['makes detected sessions up to date'] = function()
+  local new_session = 'tests/dir-sessions/global/new_session'
+  MiniTest.finally(function() vim.fn.delete(new_session) end)
 
-  child.cmd('mksession')
-  local path = make_path(session_dir, 'Session.vim')
-  eq(child.fn.filereadable(path), 1)
-  eq(child.lua_get([=[MiniSessions.detected['Session.vim']]=]), vim.NIL)
+  -- Detect sessions without new session
+  reload_module({ autowrite = false, directory = 'tests/dir-sessions/global' })
+  eq(child.lua_get('MiniSessions.detected.new_session == nil'), true)
 
-  -- Shouldn't delete `Session.vim` because it is not detected
-  expect.error(
-    function() child.lua([[MiniSessions.delete('Session.vim')]]) end,
-    '%(mini%.sessions%) "Session%.vim" is not a name for detected session'
-  )
+  -- Create new session file manually and try to delete it directly without
+  -- reloading whole module.
+  child.fn.writefile({ 'lua _G.session_file = ' .. vim.inspect(new_session) }, new_session)
+
+  child.lua([[MiniSessions.delete('new_session')]])
+  eq(child.fn.filereadable(new_session), 0)
 end
 
 T['delete()']['respects `force` from `config` and `opts` argument'] = function()
@@ -811,9 +837,6 @@ T['select()'] = new_set({
       child.fn.writefile({}, make_path(session_dir, 'Session.vim'), '')
 
       reload_module({ directory = session_dir })
-
-      -- Cleanup of current directory
-      cd(project_root)
     end,
   },
 })
@@ -835,6 +858,18 @@ T['select()']['works'] = function()
   validate_no_session_loaded()
   child.lua([[_G.ui_select_args[3]('session_a', 2)]])
   validate_session_loaded('empty/session_a')
+end
+
+T['select()']['makes detected sessions up to date'] = function()
+  child.lua('MiniSessions.select()')
+  eq(child.lua_get('_G.ui_select_args[1]'), { 'Session.vim', 'session_a', 'session_b' })
+
+  -- Remove 'session_a' manually which should be shown in `select()` output
+  local directory = child.lua_get('MiniSessions.config.directory')
+  child.fn.delete(make_path(directory, 'session_a'))
+
+  child.lua('MiniSessions.select()')
+  eq(child.lua_get('_G.ui_select_args[1]'), { 'Session.vim', 'session_b' })
 end
 
 T['select()']['verifies presense of `vim.ui` and `vim.ui.select`'] = function()

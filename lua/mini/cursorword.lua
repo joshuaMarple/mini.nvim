@@ -1,11 +1,21 @@
--- MIT License Copyright (c) 2021 Evgeni Chasnovski
-
--- Documentation ==============================================================
---- Autohighlight word under cursor with customizable delay. Current word under
---- cursor can be highlighted differently. Highlighting is triggered only if
---- current cursor character is a |[:keyword:]|. "Word under cursor" is meant
---- as in Vim's |<cword>|: something user would get as 'iw' text object.
---- Highlighting stops in insert and terminal modes.
+--- *mini.cursorword* Autohighlight word under cursor
+--- *MiniCursorword*
+---
+--- MIT License Copyright (c) 2021 Evgeni Chasnovski
+---
+--- ==============================================================================
+---
+--- Features:
+--- - Autohighlight word under cursor with customizable delay.
+---
+--- - Current word under cursor can be highlighted differently.
+---
+--- - Highlighting is triggered only if current cursor character is a |[:keyword:]|.
+---
+--- - Highlighting stops in insert and terminal modes.
+---
+--- - "Word under cursor" is meant as in Vim's |<cword>|: something user would
+---   get as 'iw' text object.
 ---
 --- # Setup~
 ---
@@ -22,19 +32,22 @@
 ---
 --- # Highlight groups~
 ---
---- * `MiniCursorword` - highlight group of cursor word. Default: plain underline.
---- * `MiniCursorwordCurrent` - highlight group of a current word under
----   cursor. It will be displayed on top of `MiniCursorword`
----   (so `:hi clear MiniCursorwordCurrent` will lead to showing
----   `MiniCursorword` highlight group). Note: To not highlight it, use
----   `:hi! MiniCursorwordCurrent gui=nocombine guifg=NONE guibg=NONE` .
+--- * `MiniCursorword` - highlight group of a non-current cursor word.
+---   Default: plain underline.
+---
+--- * `MiniCursorwordCurrent` - highlight group of a current word under cursor.
+---   Default: links to `MiniCursorword` (so `:hi clear MiniCursorwordCurrent`
+---   will lead to showing `MiniCursorword` highlight group).
+---   Note: To not highlight it, use
+---
+---   `:hi! MiniCursorwordCurrent guifg=NONE guibg=NONE gui=NONE cterm=NONE`
 ---
 --- To change any highlight group, modify it directly with |:highlight|.
 ---
 --- # Disabling~
 ---
---- To disable core functionality, set `g:minicursorword_disable` (globally) or
---- `b:minicursorword_disable` (for a buffer) to `v:true`. Considering high
+--- To disable core functionality, set `vim.g.minicursorword_disable` (globally) or
+--- `vim.b.minicursorword_disable` (for a buffer) to `true`. Considering high
 --- number of different scenarios and customization intentions, writing exact
 --- rules for disabling module's functionality is left to user. See
 --- |mini.nvim-disabling-recipes| for common recipes. Note: after disabling
@@ -63,8 +76,6 @@
 ---
 ---   -- Make sure to add this autocommand *before* calling module's `setup()`.
 ---   vim.cmd('au CursorMoved * lua _G.cursorword_blocklist()')
----@tag mini.cursorword
----@tag MiniCursorword
 
 -- Module definition ==========================================================
 local MiniCursorword = {}
@@ -72,10 +83,19 @@ local H = {}
 
 --- Module setup
 ---
----@param config table Module config table. See |MiniCursorword.config|.
+---@param config table|nil Module config table. See |MiniCursorword.config|.
 ---
 ---@usage `require('mini.cursorword').setup({})` (replace `{}` with your `config` table)
 MiniCursorword.setup = function(config)
+  -- TODO: Remove after Neovim<=0.6 support is dropped
+  if vim.fn.has('nvim-0.7') == 0 then
+    vim.notify(
+      '(mini.cursorword) Neovim<0.7 is soft deprecated (module works but not supported).'
+        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
+        .. ' Please update your Neovim version.'
+    )
+  end
+
   -- Export module
   _G.MiniCursorword = MiniCursorword
 
@@ -93,6 +113,7 @@ MiniCursorword.setup = function(config)
         au InsertEnter,TermEnter,QuitPre * lua MiniCursorword.auto_unhighlight()
 
         au FileType TelescopePrompt let b:minicursorword_disable=v:true
+        au ColorScheme * hi default MiniCursorword cterm=underline gui=underline
       augroup END]],
     false
   )
@@ -215,7 +236,7 @@ H.get_config = function(config)
 end
 
 -- Highlighting ---------------------------------------------------------------
----@param only_current boolean Whether to forcefuly highlight only current word
+---@param only_current boolean|nil Whether to forcefuly highlight only current word
 ---   under cursor.
 ---@private
 H.highlight = function(only_current)
@@ -228,27 +249,28 @@ H.highlight = function(only_current)
 
   H.window_matches[win_id] = H.window_matches[win_id] or {}
 
-  -- Add match highlight for current word under cursor with low priority
-  local match_id_current = vim.fn.matchadd('MiniCursorwordCurrent', [[\k*\%#\k*]], -1)
+  -- Add match highlight for current word under cursor
+  local current_word_pattern = [[\k*\%#\k*]]
+  local match_id_current = vim.fn.matchadd('MiniCursorwordCurrent', current_word_pattern, -1)
   H.window_matches[win_id].id_current = match_id_current
 
   -- Don't add main match id if not needed or if one is already present
   if only_current or H.window_matches[win_id].id ~= nil then return end
 
-  -- Make highlighting for cursor word with pattern being 'very nomagic' ('\V')
-  -- and matching whole word ('\<' and '\>')
+  -- Add match highlight for non-current word under cursor. NOTEs:
+  -- - Using `\(...\)\@!` allows to not match current word.
+  -- - Using 'very nomagic' ('\V') allows not escaping.
+  -- - Using `\<` and `\>` matches whole word (and not as part).
   local curword = H.get_cursor_word()
-  local curpattern = string.format([[\V\<%s\>]], curword)
-
-  -- Add match highlight with even lower priority for current word to be on top
-  local match_id = vim.fn.matchadd('MiniCursorword', curpattern, -2)
+  local pattern = string.format([[\(%s\)\@!\&\V\<%s\>]], current_word_pattern, curword)
+  local match_id = vim.fn.matchadd('MiniCursorword', pattern, -1)
 
   -- Store information about highlight
   H.window_matches[win_id].id = match_id
   H.window_matches[win_id].word = curword
 end
 
----@param only_current boolean Whether to remove highlighting only of current
+---@param only_current boolean|nil Whether to remove highlighting only of current
 ---   word under cursor.
 ---@private
 H.unhighlight = function(only_current)

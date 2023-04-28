@@ -88,6 +88,7 @@ T['setup()']['creates side effects'] = function()
   -- Highlight groups
   expect.match(child.cmd_capture('hi MiniTestFail'), 'gui=bold')
   expect.match(child.cmd_capture('hi MiniTestPass'), 'gui=bold')
+  expect.match(child.cmd_capture('hi MiniTestEmphasis'), 'gui=bold')
 end
 
 T['setup()']['creates `config` field'] = function()
@@ -102,6 +103,7 @@ T['setup()']['creates `config` field'] = function()
   expect_config('execute.reporter', vim.NIL)
   expect_config('execute.stop_on_error', false)
   expect_config('script_path', 'scripts/minitest.lua')
+  expect_config('silent', false)
 end
 
 T['setup()']['respects `config` argument'] = function()
@@ -127,6 +129,14 @@ T['setup()']['validates `config` argument'] = function()
   expect_config_error({ execute = { reporter = 'a' } }, 'execute.reporter', 'function')
   expect_config_error({ execute = { stop_on_error = 'a' } }, 'execute.stop_on_error', 'boolean')
   expect_config_error({ script_path = 1 }, 'script_path', 'string')
+  expect_config_error({ silent = 1 }, 'silent', 'boolean')
+end
+
+T['setup()']['defines non-linked default highlighting on `ColorScheme`'] = function()
+  child.cmd('colorscheme blue')
+  expect.match(child.cmd_capture('hi MiniTestFail'), 'gui=bold')
+  expect.match(child.cmd_capture('hi MiniTestPass'), 'gui=bold')
+  expect.match(child.cmd_capture('hi MiniTestEmphasis'), 'gui=bold')
 end
 
 T['new_set()'] = new_set()
@@ -522,6 +532,15 @@ T['execute()']['handles no cases'] = function()
 
   -- Should throw message
   eq(get_latest_message(), '(mini.test) No cases to execute.')
+end
+
+T['execute()']['respects `config.silent`'] = function()
+  child.lua('MiniTest.config.silent = true')
+  child.lua('MiniTest.execute({})')
+  eq(child.lua_get('MiniTest.current.all_cases'), {})
+
+  -- Should not throw message
+  eq(get_latest_message(), '')
 end
 
 T['stop()'] = new_set()
@@ -943,9 +962,11 @@ local validate_child_method = function(method, opts)
   if opts.prevent_hanging then
     child.type_keys('di')
     expect.error(method, opts.name .. '.*child process is blocked')
+    -- Unblock for faster test execution
+    child.type_keys('<Esc>')
   end
 
-  -- Validate ensuring running. NOTE: should be called last in case.
+  -- Validate ensuring running
   child.stop()
   expect.error(method, 'Child process is not running')
 end
@@ -981,7 +1002,8 @@ T['child']['redirected method tables'] = new_set({
     { 'lsp', 'get_active_clients', {} },
     { 'mpack', 'encode', { { a = 1 } } },
     { 'spell', 'check', { 'thouht' } },
-    { 'treesitter', 'list_directives', {} },
+    -- The `treesitter` module is also redirected but there is no reliable way
+    -- to test it without installing parsers
   },
 })
 
@@ -993,7 +1015,7 @@ T['child']['redirected method tables']['method'] = function(tbl_name, field_name
   validate_child_method(method, { name = tbl_name .. '.' .. field_name })
 end
 
-T['child']['redirected method tables']['field'] = function(tbl_name, field_name, _, _)
+T['child']['redirected method tables']['field'] = function(tbl_name, field_name, _)
   -- Test only on Neovim>=0.7 (not everything is present in earlier versions)
   if child.fn.has('nvim-0.7.0') == 0 then return end
 
@@ -1279,7 +1301,7 @@ T['gen_reporter']['buffer'] = new_set({
   },
 }, {
   test = function(opts_element)
-    if child.fn.has('nvim-0.8') == 0 then return end
+    if child.fn.has('nvim-0.10') == 0 then MiniTest.skip('Screenshots are generated for Neovim>=0.10.') end
 
     mark_flaky()
 
