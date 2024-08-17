@@ -37,7 +37,7 @@ Using `minicyan` color scheme:
 ## Features
 
 Supported highlight groups:
-- Builtin-in Neovim LSP and diagnostic.
+- Built-in Neovim LSP and diagnostic.
 - Plugins (either with explicit definition or by verification that default
   highlighting works appropriately):
     - [echasnovski/mini.nvim](https://github.com/echasnovski/mini.nvim)
@@ -53,13 +53,14 @@ Supported highlight groups:
     - [ggandor/lightspeed.nvim](https://github.com/ggandor/lightspeed.nvim)
     - [glepnir/dashboard-nvim](https://github.com/glepnir/dashboard-nvim)
     - [glepnir/lspsaga.nvim](https://github.com/glepnir/lspsaga.nvim)
-    - [HiPhish/nvim-ts-rainbow2](https://github.com/HiPhish/nvim-ts-rainbow2)
+    - [HiPhish/rainbow-delimiters.nvim](https://github.com/HiPhish/rainbow-delimiters.nvim)
     - [hrsh7th/nvim-cmp](https://github.com/hrsh7th/nvim-cmp)
     - [justinmk/vim-sneak](https://github.com/justinmk/vim-sneak)
     - [kevinhwang91/nvim-ufo](https://github.com/kevinhwang91/nvim-ufo)
     - [lewis6991/gitsigns.nvim](https://github.com/lewis6991/gitsigns.nvim)
     - [lukas-reineke/indent-blankline.nvim](https://github.com/lukas-reineke/indent-blankline.nvim)
     - [neoclide/coc.nvim](https://github.com/neoclide/coc.nvim)
+    - [NeogitOrg/neogit](https://github.com/NeogitOrg/neogit)
     - [nvim-lualine/lualine.nvim](https://github.com/nvim-lualine/lualine.nvim)
     - [nvim-neo-tree/neo-tree.nvim](https://github.com/nvim-neo-tree/neo-tree.nvim)
     - [nvim-telescope/telescope.nvim](https://github.com/nvim-telescope/telescope.nvim)
@@ -69,9 +70,7 @@ Supported highlight groups:
     - [rcarriga/nvim-notify](https://github.com/rcarriga/nvim-notify)
     - [rlane/pounce.nvim](https://github.com/rlane/pounce.nvim)
     - [romgrk/barbar.nvim](https://github.com/romgrk/barbar.nvim)
-    - [simrat39/symbols-outline.nvim](https://github.com/simrat39/symbols-outline.nvim)
     - [stevearc/aerial.nvim](https://github.com/stevearc/aerial.nvim)
-    - [TimUntersberger/neogit](https://github.com/TimUntersberger/neogit)
     - [williamboman/mason.nvim](https://github.com/williamboman/mason.nvim)
 
 ## Installation
@@ -84,6 +83,32 @@ There are two branches to install from:
 - `stable` will be updated only upon releases with code tested during public beta-testing phase in `main` branch.
 
 Here are code snippets for some common installation methods (use only one):
+
+<details>
+<summary>With <a href="https://github.com/echasnovski/mini.nvim/blob/main/readmes/mini-deps.md">mini.deps</a></summary>
+<table>
+    <thead>
+        <tr>
+            <th>Github repo</th>
+            <th>Branch</th> <th>Code snippet</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td rowspan=2>'mini.nvim' library</td> <td>Main</td> <td rowspan=2><i>Follow recommended 'mini.deps' installation</i></td>
+        </tr>
+        <tr>
+            <td>Stable</td>
+        </tr>
+        <tr>
+            <td rowspan=2>Standalone plugin</td> <td>Main</td> <td><code>add('echasnovski/mini.base16')</code></td>
+        </tr>
+        <tr>
+            <td>Stable</td> <td><code>add({ source = 'echasnovski/mini.base16', checkout = 'stable' })</code></td>
+        </tr>
+    </tbody>
+</table>
+</details>
 
 <details>
 <summary>With <a href="https://github.com/folke/lazy.nvim">folke/lazy.nvim</a></summary>
@@ -108,33 +133,6 @@ Here are code snippets for some common installation methods (use only one):
         </tr>
         <tr>
             <td>Stable</td> <td><code>{ 'echasnovski/mini.base16', version = '*' },</code></td>
-        </tr>
-    </tbody>
-</table>
-</details>
-
-<details>
-<summary>With <a href="https://github.com/wbthomason/packer.nvim">wbthomason/packer.nvim</a></summary>
-<table>
-    <thead>
-        <tr>
-            <th>Github repo</th>
-            <th>Branch</th> <th>Code snippet</th>
-        </tr>
-    </thead>
-    <tbody>
-        <tr>
-            <td rowspan=2>'mini.nvim' library</td>
-            <td>Main</td> <td><code>use 'echasnovski/mini.nvim'</code></td>
-        </tr>
-        <tr>
-            <td>Stable</td> <td><code>use { 'echasnovski/mini.nvim', branch = 'stable' }</code></td>
-        </tr>
-        <tr>
-            <td rowspan=2>Standalone plugin</td> <td>Main</td> <td><code>use 'echasnovski/mini.base16'</code></td>
-        </tr>
-        <tr>
-            <td>Stable</td> <td><code>use { 'echasnovski/mini.base16', branch = 'stable' }</code></td>
         </tr>
     </tbody>
 </table>

@@ -39,10 +39,20 @@ M.fun = function(a, b) return true end
 --- `@tag` should enclose non-whitespace group separately.
 ---
 ---@signature fun(x, y)
----
 ---@tag test-f f-test
 --- f-test-different-line
 local f = function() end
+
+
+--- Test for smart empty line append
+--- Some text
+---   
+
+--- Test for smart empty line before tag
+--- >lua
+---   -- This is code block
+--- <
+---@tag important-tag
 
 --- Test for `@text`
 ---

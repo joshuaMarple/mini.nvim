@@ -98,7 +98,7 @@
 ---       indent scope, like how to treat empty lines near border or whether to
 ---       compute indent at cursor.
 ---
---- # Disabling~
+--- # Disabling ~
 ---
 --- To disable, set `vim.g.minibracketed_disable` (globally) or
 --- `vim.b.minibracketed_disable` (for a buffer) to `true`. Considering high
@@ -106,7 +106,10 @@
 --- rules for disabling module's functionality is left to user. See
 --- |mini.nvim-disabling-recipes| for common recipes.
 
+---@diagnostic disable:luadoc-miss-type-name
 ---@alias __bracketed_direction string One of "first", "backward", "forward", "last".
+---@alias __bracketed_add_to_jumplist - <add_to_jumplist> (`boolean`) - Whether to add current position to jumplist.
+---     Default: `false`.
 ---@alias __bracketed_opts table|nil Options. A table with fields:
 ---   - <n_times> `(number)` - Number of times to advance. Default: |v:count1|.
 ---   - <wrap> `(boolean)` - Whether to wrap around edges. Default: `true`.
@@ -121,7 +124,11 @@ local H = {}
 ---
 ---@param config table|nil Module config table. See |MiniBracketed.config|.
 ---
----@usage `require('mini.bracketed').setup({})` (replace `{}` with your `config` table)
+---@usage >lua
+---   require('mini.bracketed').setup() -- use default config
+---   -- OR
+---   require('mini.bracketed').setup({}) -- replace {} with your config table
+--- <
 MiniBracketed.setup = function(config)
   -- Export module
   _G.MiniBracketed = MiniBracketed
@@ -132,15 +139,8 @@ MiniBracketed.setup = function(config)
   -- Apply config
   H.apply_config(config)
 
-  -- Module behavior
-  vim.api.nvim_exec(
-    [[augroup MiniBracketed
-        au!
-        au BufEnter * lua MiniBracketed.track_oldfile()
-        au TextYankPost * lua MiniBracketed.track_yank()
-      augroup END]],
-    false
-  )
+  -- Define behavior
+  H.create_autocommands()
 end
 
 --stylua: ignore
@@ -153,7 +153,7 @@ end
 --- Each entry configures target with the same name and can have data configuring
 --- mapping suffix and target options.
 ---
---- Example of configuration: >
+--- Example of configuration: >lua
 ---
 ---   require('mini.bracketed').setup({
 ---     -- Map [N, [n, ]n, ]N for conflict marker like in 'tpope/vim-unimpaired'
@@ -176,7 +176,7 @@ end
 ---   map('n', '<Leader>wh', "<Cmd>lua MiniBracketed.window('backward')<CR>")
 ---   map('n', '<Leader>wl', "<Cmd>lua MiniBracketed.window('forward')<CR>")
 ---   map('n', '<Leader>wL', "<Cmd>lua MiniBracketed.window('last')<CR>")
----
+--- <
 --- ## Suffix ~
 ---
 --- The `suffix` key is used to create target mappings.
@@ -280,6 +280,7 @@ end
 ---
 ---@param direction __bracketed_direction
 ---@param opts __bracketed_opts
+---   __bracketed_add_to_jumplist
 ---   - <block_side> `(string)` - which side of comment block to use. One of
 ---     "near" (default; use nearest side), "start" (use first line), "end"
 ---     (use last line), "both" (use both first and last lines).
@@ -289,7 +290,7 @@ MiniBracketed.comment = function(direction, opts)
   H.validate_direction(direction, { 'first', 'backward', 'forward', 'last' }, 'comment')
   opts = vim.tbl_deep_extend(
     'force',
-    { block_side = 'near', n_times = vim.v.count1, wrap = true },
+    { add_to_jumplist = false, block_side = 'near', n_times = vim.v.count1, wrap = true },
     H.get_config().comment.options,
     opts or {}
   )
@@ -337,8 +338,11 @@ MiniBracketed.comment = function(direction, opts)
   local is_outside = res_line_num <= 0 or n_lines < res_line_num
   if res_line_num == nil or res_line_num == iterator.state or is_outside then return end
 
+  -- Possibly add current position to jumplist
+  if opts.add_to_jumplist then H.add_to_jumplist() end
+
   -- Apply. Open just enough folds and put cursor on first non-blank.
-  vim.api.nvim_win_set_cursor(0, { res_line_num, 0 })
+  H.set_cursor(res_line_num, 0)
   vim.cmd('normal! zv^')
 end
 
@@ -358,12 +362,17 @@ end
 ---
 ---@param direction __bracketed_direction
 ---@param opts __bracketed_opts
+---   __bracketed_add_to_jumplist
 MiniBracketed.conflict = function(direction, opts)
   if H.is_disabled() then return end
 
   H.validate_direction(direction, { 'first', 'backward', 'forward', 'last' }, 'conflict')
-  opts =
-    vim.tbl_deep_extend('force', { n_times = vim.v.count1, wrap = true }, H.get_config().conflict.options, opts or {})
+  opts = vim.tbl_deep_extend(
+    'force',
+    { add_to_jumplist = false, n_times = vim.v.count1, wrap = true },
+    H.get_config().conflict.options,
+    opts or {}
+  )
 
   -- Define iterator that traverses all conflict markers in current buffer
   local n_lines = vim.api.nvim_buf_line_count(0)
@@ -391,8 +400,11 @@ MiniBracketed.conflict = function(direction, opts)
   local is_outside = res_line_num <= 0 or n_lines < res_line_num
   if res_line_num == nil or res_line_num == iterator.state or is_outside then return end
 
+  -- Possibly add current position to jumplist
+  if opts.add_to_jumplist then H.add_to_jumplist() end
+
   -- Apply. Open just enough folds and put cursor on first non-blank.
-  vim.api.nvim_win_set_cursor(0, { res_line_num, 0 })
+  H.set_cursor(res_line_num, 0)
   vim.cmd('normal! zv^')
 end
 
@@ -407,13 +419,13 @@ end
 ---
 --- Notes:
 --- - Using `severity` option, this target can be used in mappings like "go to
----   next/previous error" (), etc. Using code similar to this: >
+---   next/previous error" (), etc. Using code similar to this: >lua
 ---
 ---   local severity_error = vim.diagnostic.severity.ERROR
 ---   -- Use these inside custom mappings
 ---   MiniBracketed.diagnostic('forward', { severity = severity_error })
 ---   MiniBracketed.diagnostic('backward', { severity = severity_error })
----
+--- <
 ---@param direction __bracketed_direction
 ---@param opts __bracketed_opts
 ---   - <float> `(boolean|table)` - control floating window after movement.
@@ -557,6 +569,7 @@ end
 ---@param direction __bracketed_direction
 ---@param opts table|nil Options. A table with fields:
 ---   - <n_times> `(number)` - Number of times to advance. Default: |v:count1|.
+---   __bracketed_add_to_jumplist
 ---   - <change_type> `(string)` - which type of indent change to use.
 ---     One of "less" (default; smaller indent), "more" (bigger indent),
 ---     "diff" (different indent).
@@ -566,7 +579,7 @@ MiniBracketed.indent = function(direction, opts)
   H.validate_direction(direction, { 'first', 'backward', 'forward', 'last' }, 'indent')
   opts = vim.tbl_deep_extend(
     'force',
-    { change_type = 'less', n_times = vim.v.count1 },
+    { add_to_jumplist = false, change_type = 'less', n_times = vim.v.count1 },
     H.get_config().indent.options,
     opts or {}
   )
@@ -626,8 +639,11 @@ MiniBracketed.indent = function(direction, opts)
   local res_line_num = MiniBracketed.advance(iterator, direction, opts)
   if res_line_num == nil or res_line_num == iterator.state then return end
 
+  -- Possibly add current position to jumplist
+  if opts.add_to_jumplist then H.add_to_jumplist() end
+
   -- Apply. Open just enough folds and put cursor on first non-blank.
-  vim.api.nvim_win_set_cursor(0, { res_line_num, 0 })
+  H.set_cursor(res_line_num, 0)
   vim.cmd('normal! zv^')
 end
 
@@ -807,6 +823,7 @@ end
 ---@param direction __bracketed_direction
 ---@param opts table|nil Options. A table with fields:
 ---   - <n_times> `(number)` - Number of times to advance. Default: |v:count1|.
+---   __bracketed_add_to_jumplist
 MiniBracketed.treesitter = function(direction, opts)
   if H.get_treesitter_node == nil then
     H.error(
@@ -817,7 +834,12 @@ MiniBracketed.treesitter = function(direction, opts)
   if H.is_disabled() then return end
 
   H.validate_direction(direction, { 'first', 'backward', 'forward', 'last' }, 'treesitter')
-  opts = vim.tbl_deep_extend('force', { n_times = vim.v.count1 }, H.get_config().treesitter.options, opts or {})
+  opts = vim.tbl_deep_extend(
+    'force',
+    { add_to_jumplist = false, n_times = vim.v.count1 },
+    H.get_config().treesitter.options,
+    opts or {}
+  )
 
   opts.wrap = false
 
@@ -893,9 +915,11 @@ MiniBracketed.treesitter = function(direction, opts)
   local res_node_pos = MiniBracketed.advance(iterator, direction, opts)
   if res_node_pos == nil then return end
 
+  -- Possibly add current position to jumplist
+  if opts.add_to_jumplist then H.add_to_jumplist() end
+
   -- Apply
-  local row, col = res_node_pos.pos[1], res_node_pos.pos[2]
-  vim.api.nvim_win_set_cursor(0, { row + 1, col })
+  H.set_cursor(res_node_pos.pos[1] + 1, res_node_pos.pos[2])
 end
 
 --- Undo along a tracked linear history
@@ -1093,14 +1117,14 @@ end
 ---
 --- - Remap common put operations to use |MiniBracketed.register_put_region()|.
 ---   After that, only regions from mapped put operations will be used for first
----   advance. Example of custom mappings (note use of |:map-expression|): >
+---   advance. Example of custom mappings (note use of |:map-expression|): >lua
 ---
 ---     local put_keys = { 'p', 'P' }
 ---     for _, lhs in ipairs(put_keys) do
 ---       local rhs = 'v:lua.MiniBracketed.register_put_region("' .. lhs .. '")'
 ---       vim.keymap.set({ 'n', 'x' }, lhs, rhs, { expr = true })
 ---     end
----
+--- <
 ---@param direction __bracketed_direction
 ---@param opts __bracketed_opts
 ---   - <operators> `(table)` - array of operator names ("c", "d", or "y") for
@@ -1218,7 +1242,7 @@ MiniBracketed.advance = function(iterator, direction, opts)
   -- Use two states: "result" will be used as result, "current" will be used
   -- for iteration. Separation is needed at least for two reasons:
   -- - Allow partial reach of `n_times`.
-  -- - Don't allow `start_edge` and `end_edge` be the outupt.
+  -- - Don't allow `start_edge` and `end_edge` be the output.
   local res_state = iterator.state
 
   -- Compute loop data
@@ -1263,60 +1287,9 @@ MiniBracketed.advance = function(iterator, direction, opts)
   return res_state
 end
 
-MiniBracketed.track_oldfile = function()
-  if H.is_disabled() then return end
-
-  -- Ensure tracking data is initialized
-  H.oldfile_ensure_initialized()
-
-  -- Reset tracking indicator to allow proper tracking of next buffer
-  local is_advancing = H.cache.oldfile.is_advancing
-  H.cache.oldfile.is_advancing = false
-
-  -- Track only appropriate buffers (normal buffers with path)
-  local path = vim.api.nvim_buf_get_name(0)
-  local is_proper_buffer = path ~= '' and vim.bo.buftype == ''
-  if not is_proper_buffer then return end
-
-  -- If advancing, don't touch tracking data to be able to consecutively move
-  -- along recent files. Cache advanced buffer name to later update recency of
-  -- the last one (just before buffer switching outside of `oldfile()`)
-  local cache_oldfile = H.cache.oldfile
-
-  if is_advancing then
-    cache_oldfile.last_advanced_bufname = path
-    return
-  end
-
-  -- If not advancing, update recency of a single latest advanced buffer (if
-  -- present) and then update recency of current buffer
-  if cache_oldfile.last_advanced_bufname ~= nil then
-    H.oldfile_update_recency(cache_oldfile.last_advanced_bufname)
-    cache_oldfile.last_advanced_bufname = nil
-  end
-
-  H.oldfile_update_recency(path)
-end
-
-MiniBracketed.track_yank = function()
-  -- Don't track if asked not to. Allows other functionality to disable
-  -- tracking (like in 'mini.move').
-  if H.is_disabled() then return end
-
-  -- Track all `TextYankPost` events without exceptions. This leads to a better
-  -- handling of charwise/linewise/blockwise selection detection.
-  local event = vim.v.event
-  table.insert(
-    H.cache.yank.history,
-    { operator = event.operator, regcontents = event.regcontents, regtype = event.regtype }
-  )
-
-  H.yank_stop_advancing()
-end
-
 -- Helper data ================================================================
 -- Module default config
-H.default_config = MiniBracketed.config
+H.default_config = vim.deepcopy(MiniBracketed.config)
 
 H.cache = {
   -- Tracking of old files for `oldfile()` (this data structure is designed to be
@@ -1344,7 +1317,7 @@ H.cache = {
 
   -- Cache for `yank` targets
   yank = {
-    -- Per-buffer region of latest advance. Used to corretly determine range
+    -- Per-buffer region of latest advance. Used to correctly determine range
     -- and mode of latest advanced region.
     advance_put_regions = {},
     -- Current id of yank entry in yank history
@@ -1370,7 +1343,7 @@ H.setup_config = function(config)
   -- General idea: if some table elements are not present in user-supplied
   -- `config`, take them from default config
   vim.validate({ config = { config, 'table', true } })
-  config = vim.tbl_deep_extend('force', H.default_config, config or {})
+  config = vim.tbl_deep_extend('force', vim.deepcopy(H.default_config), config or {})
 
   --stylua: ignore
   vim.validate({
@@ -1625,10 +1598,73 @@ end
 
 H.get_suffix_variants = function(char) return char:lower(), char:upper() end
 
+H.create_autocommands = function()
+  local augroup = vim.api.nvim_create_augroup('MiniBracketed', {})
+
+  local au = function(event, pattern, callback, desc)
+    vim.api.nvim_create_autocmd(event, { group = augroup, pattern = pattern, callback = callback, desc = desc })
+  end
+
+  au('BufEnter', '*', H.track_oldfile, 'Track oldfile')
+  au('TextYankPost', '*', H.track_yank, 'Track yank')
+end
+
 H.is_disabled = function() return vim.g.minibracketed_disable == true or vim.b.minibracketed_disable == true end
 
 H.get_config = function(config)
   return vim.tbl_deep_extend('force', MiniBracketed.config, vim.b.minibracketed_config or {}, config or {})
+end
+
+-- Autocommands ---------------------------------------------------------------
+H.track_oldfile = function()
+  if H.is_disabled() then return end
+
+  -- Ensure tracking data is initialized
+  H.oldfile_ensure_initialized()
+
+  -- Reset tracking indicator to allow proper tracking of next buffer
+  local is_advancing = H.cache.oldfile.is_advancing
+  H.cache.oldfile.is_advancing = false
+
+  -- Track only appropriate buffers (normal buffers with path)
+  local path = vim.api.nvim_buf_get_name(0)
+  local is_proper_buffer = path ~= '' and vim.bo.buftype == ''
+  if not is_proper_buffer then return end
+
+  -- If advancing, don't touch tracking data to be able to consecutively move
+  -- along recent files. Cache advanced buffer name to later update recency of
+  -- the last one (just before buffer switching outside of `oldfile()`)
+  local cache_oldfile = H.cache.oldfile
+
+  if is_advancing then
+    cache_oldfile.last_advanced_bufname = path
+    return
+  end
+
+  -- If not advancing, update recency of a single latest advanced buffer (if
+  -- present) and then update recency of current buffer
+  if cache_oldfile.last_advanced_bufname ~= nil then
+    H.oldfile_update_recency(cache_oldfile.last_advanced_bufname)
+    cache_oldfile.last_advanced_bufname = nil
+  end
+
+  H.oldfile_update_recency(path)
+end
+
+H.track_yank = function()
+  -- Don't track if asked not to. Allows other functionality to disable
+  -- tracking (like in 'mini.move').
+  if H.is_disabled() then return end
+
+  -- Track all `TextYankPost` events without exceptions. This leads to a better
+  -- handling of charwise/linewise/blockwise selection detection.
+  local event = vim.v.event
+  table.insert(
+    H.cache.yank.history,
+    { operator = event.operator, regcontents = event.regcontents, regtype = event.regtype }
+  )
+
+  H.yank_stop_advancing()
 end
 
 -- Comments -------------------------------------------------------------------
@@ -1780,9 +1816,9 @@ H.qf_loc_implementation = function(list_type, direction, opts)
 end
 
 -- Treesitter -----------------------------------------------------------------
-if vim.treesitter.get_node ~= nil then
+if vim.fn.has('nvim-0.9') == 1 then
   H.get_treesitter_node = function(row, col) return vim.treesitter.get_node({ pos = { row, col } }) end
-elseif vim.treesitter.get_node_at_pos ~= nil then
+else
   H.get_treesitter_node = function(row, col) return vim.treesitter.get_node_at_pos(0, row, col, {}) end
 end
 
@@ -1938,7 +1974,7 @@ end
 
 H.region_delete = function(region, normal_fun)
   -- Start with `to` to have cursor positioned on region start after deletion
-  vim.api.nvim_win_set_cursor(0, { region.to.line, region.to.col - 1 })
+  H.set_cursor(region.to.line, region.to.col - 1)
 
   -- Do nothing more if region is empty (or leads to unnecessary line deletion)
   local is_empty = region.from.line == region.to.line
@@ -1949,7 +1985,7 @@ H.region_delete = function(region, normal_fun)
 
   -- Select region in correct Visual mode
   normal_fun(region.mode)
-  vim.api.nvim_win_set_cursor(0, { region.from.line, region.from.col - 1 })
+  H.set_cursor(region.from.line, region.from.col - 1)
 
   -- Delete region in "black hole" register
   -- - NOTE: it doesn't affect history as `"_` doesn't trigger `TextYankPost`
@@ -1972,15 +2008,20 @@ H.validate_direction = function(direction, choices, fun_name)
   end
 end
 
-H.map = function(mode, key, rhs, opts)
-  if key == '' then return end
+H.map = function(mode, lhs, rhs, opts)
+  if lhs == '' then return end
+  opts = vim.tbl_deep_extend('force', { silent = true }, opts or {})
+  vim.keymap.set(mode, lhs, rhs, opts)
+end
 
-  opts = vim.tbl_deep_extend('force', { noremap = true, silent = true }, opts or {})
+H.add_to_jumplist = function() vim.cmd([[normal! m']]) end
 
-  -- Use mapping description only in Neovim>=0.7
-  if vim.fn.has('nvim-0.7') == 0 then opts.desc = nil end
-
-  vim.api.nvim_set_keymap(mode, key, rhs, opts)
+H.set_cursor = function(row, col)
+  if row <= 0 then return vim.api.nvim_win_set_cursor(0, { 1, 0 }) end
+  local n_lines = vim.api.nvim_buf_line_count(0)
+  if n_lines < row then return vim.api.nvim_win_set_cursor(0, { n_lines, vim.fn.getline(n_lines):len() - 1 }) end
+  col = math.min(math.max(col, 0), vim.fn.getline(row):len())
+  return vim.api.nvim_win_set_cursor(0, { row, col })
 end
 
 return MiniBracketed

@@ -44,15 +44,49 @@ local construct_additionTextEdits = function(id, name)
   }
 end
 
+local construct_textEdit = function(name, kind)
+  if _G.mock_textEdit == nil then return end
+  local new_text, pos = _G.mock_textEdit.new_text, _G.mock_textEdit.pos
+  local is_insertreplaceedit = kind == 'InsertReplaceEdit'
+  local range = {
+    start = { line = pos[1] - 1, character = pos[2] - 1 },
+    ['end'] = { line = pos[1] - 1, character = pos[2] },
+  }
+  return {
+    newText = new_text(name),
+    [is_insertreplaceedit and 'insert' or 'range'] = range,
+    replace = is_insertreplaceedit and range or nil,
+  }
+end
+
+local construct_filterText = function(name)
+  if _G.mock_filterText == nil then return end
+  return _G.mock_filterText(name)
+end
+
 Months.requests = {
   ['textDocument/completion'] = function(params)
+    -- Imitate returning nothing in comments
+    local line = vim.fn.getline(params.position.line + 1)
+    if line:find('^%s*#') ~= nil then return { { result = { items = {} } } } end
+
     local items = {}
     for i, item in ipairs(Months.items) do
       local res = { label = item.name, kind = item.kind, sortText = ('%03d'):format(i) }
-      -- Mock additionalTextEdits as in `pyright`
+      -- Mock `additionalTextEdits` as in `pyright`
       if vim.tbl_contains({ 'September', 'November' }, item.name) then
         res.additionalTextEdits = construct_additionTextEdits('completion', item.name)
       end
+
+      if item.name == 'April' then
+        res.textEdit = construct_textEdit(item.name, 'InsertReplaceEdit')
+        res.filterText = construct_filterText(item.name)
+      end
+      if item.name == 'August' then
+        res.textEdit = construct_textEdit(item.name, 'textEdit')
+        res.filterText = construct_filterText(item.name)
+      end
+
       table.insert(items, res)
     end
 
@@ -110,7 +144,7 @@ vim.lsp.buf_request_all = function(bufnr, method, params, callback)
   callback(requests(params))
 end
 
-vim.lsp.buf_get_clients = function(bufnr)
+local get_lsp_clients = function()
   return {
     {
       name = 'months-lsp',
@@ -123,4 +157,7 @@ vim.lsp.buf_get_clients = function(bufnr)
   }
 end
 
-vim.lsp.get_client_by_id = function(client_id) return vim.lsp.buf_get_clients(0)[client_id] end
+if vim.fn.has('nvim-0.10') == 0 then vim.lsp.buf_get_clients = get_lsp_clients end
+if vim.fn.has('nvim-0.10') == 1 then vim.lsp.get_clients = get_lsp_clients end
+
+vim.lsp.get_client_by_id = function(client_id) return get_lsp_clients()[client_id] end

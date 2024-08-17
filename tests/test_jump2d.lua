@@ -13,8 +13,7 @@ local set_cursor = function(...) return child.set_cursor(...) end
 local get_cursor = function(...) return child.get_cursor(...) end
 local set_lines = function(...) return child.set_lines(...) end
 local type_keys = function(...) return child.type_keys(...) end
-local poke_eventloop = function() child.api.nvim_eval('1') end
-local sleep = function(ms) vim.loop.sleep(ms); poke_eventloop() end
+local sleep = function(ms) helpers.sleep(ms, child) end
 local get_latest_message = function() return child.cmd_capture('1messages') end
 --stylua: ignore end
 
@@ -81,12 +80,20 @@ local setup_two_windows = function()
   return wins
 end
 
+-- Time constants
+local helper_message_delay = 1000
+local small_time = helpers.get_time_const(10)
+
 -- Output test set ============================================================
-T = new_set({
+local T = new_set({
   hooks = {
     pre_case = function()
       child.setup()
       load_module()
+
+      -- Make `start()` non-blocking to be able to execute tests. Otherwise it
+      -- will block child state waiting for `getcharstr()` to finish.
+      child.lua('MiniJump2d.start = vim.schedule_wrap(MiniJump2d.start)')
     end,
     post_once = child.stop,
   },
@@ -103,6 +110,7 @@ T['setup()']['creates side effects'] = function()
   eq(child.fn.exists('#MiniJump2d'), 1)
 
   -- Highlight groups, depending on background
+  child.cmd('hi clear')
   child.o.background = 'dark'
   reload_module()
   expect.match(child.cmd_capture('hi MiniJump2dSpot'), 'gui=bold,nocombine guifg=[Ww]hite guibg=[Bb]lack')
@@ -177,15 +185,15 @@ T['setup()']['applies `config.mappings`'] = function()
 end
 
 T['setup()']['properly handles `config.mappings`'] = function()
-  local has_map = function(lhs) return child.cmd_capture('nmap ' .. lhs):find('MiniJump2d') ~= nil end
-  eq(has_map('<CR>'), true)
+  local has_map = function(lhs, pattern) return child.cmd_capture('nmap ' .. lhs):find(pattern) ~= nil end
+  eq(has_map('<CR>', '2d'), true)
 
   unload_module()
   child.api.nvim_del_keymap('n', '<CR>')
 
   -- Supplying empty string should mean "don't create keymap"
   load_module({ mappings = { start_jumping = '' } })
-  eq(has_map('<CR>'), false)
+  eq(has_map('<CR>', '2d'), false)
 end
 
 T['setup()']['resets <CR> mapping in quickfix window'] = function()
@@ -225,7 +233,7 @@ T['start()'] = new_set({
 
 local start = function(...)
   child.lua('MiniJump2d.start(...)', { ... })
-  poke_eventloop()
+  child.poke_eventloop()
 end
 
 T['start()']['works'] = function()
@@ -243,6 +251,9 @@ T['start()']['works'] = function()
 end
 
 T['start()']['works in Visual mode'] = function()
+  child.set_size(5, 40)
+  child.o.showcmd = false
+
   type_keys('v')
 
   start()
@@ -255,13 +266,23 @@ T['start()']['works in Visual mode'] = function()
 end
 
 T['start()']['works in Operator-pending mode'] = function()
+  -- Reload module to revert `start()` to being blocking
+  reload_module()
+
   type_keys('d')
-  -- Use default mapping because otherwise it hangs child process
+  -- Use default mapping to fully imitate Operator-pending mode (and it doesn't
+  -- work otherwise)
   type_keys('<CR>')
   child.expect_screenshot()
-  type_keys('e')
+  type_keys('b')
 
-  eq(get_cursor(), { 1, 0 })
+  child.cmd('redrawstatus')
+  child.expect_screenshot()
+
+  -- Allows dot-repeat
+  type_keys('.')
+  child.expect_screenshot()
+  type_keys('c')
   child.expect_screenshot()
 end
 
@@ -300,7 +321,10 @@ T['start()']['does not account for current cursor position during label computat
 })
 
 T['start()']['uses `<CR>` to jump to first available spot'] = function()
-  set_lines({ string.rep('- ', 28) })
+  child.set_size(5, 20)
+  local win_width = child.fn.winwidth(0)
+  local line = string.rep('- ', math.floor(0.5 * win_width))
+  set_lines(vim.fn['repeat']({ line }, child.fn.winheight(0)))
 
   -- On first step
   set_cursor(1, 9)
@@ -311,7 +335,7 @@ T['start()']['uses `<CR>` to jump to first available spot'] = function()
   -- On later steps
   set_cursor(1, 9)
   start()
-  -- Spots should be labeled `a a b b c d e...`
+  -- Spots should be labeled `a a b b c c ...`
   child.expect_screenshot()
   type_keys(1, 'b', '<CR>')
   eq(get_cursor(), { 1, 4 })
@@ -334,7 +358,7 @@ T['start()']['prompts helper message after one idle second'] = function()
   child.lua([[MiniJump2d.config.labels = 'jk']])
 
   start()
-  sleep(1000 + 10)
+  sleep(helper_message_delay + small_time)
 
   -- Should show helper message without adding it to `:messages` and causing
   -- hit-enter-prompt
@@ -343,11 +367,11 @@ T['start()']['prompts helper message after one idle second'] = function()
 
   -- Should clean afterwards
   type_keys('j')
-  sleep(10)
+  sleep(small_time)
   child.expect_screenshot()
 
   -- Should show message for every key in sequence
-  sleep(1000 + 10)
+  sleep(helper_message_delay + small_time)
   child.expect_screenshot()
 end
 
@@ -442,11 +466,6 @@ T['start()']['respects `spotter`'] = function()
   child.lua('MiniJump2d.start({ spotter = function() return { 1 } end })')
   child.expect_screenshot()
 
-  -- Should also use buffer local config
-  if vim.fn.has('nvim-0.7') == 0 then
-    MiniTest.skip('Function values inside buffer variables are not supported in Neovim<0.7.')
-  end
-
   child.lua('MiniJump2d.stop()')
   child.lua('vim.b.minijump2d_config = { spotter = function() return { 2 } end }')
   child.lua('MiniJump2d.start()')
@@ -489,7 +508,7 @@ T['start()']['uses `spotter` with correct arguments'] = function()
   })
   child.expect_screenshot()
 
-  -- Should call `spotter` only on jumpt start, not on every step
+  -- Should call `spotter` only on jumped start, not on every step
   child.lua('_G.args_history = {}')
   type_keys(1, 'j', '<CR>')
   eq(child.lua_get('_G.args_history'), {})
@@ -652,10 +671,9 @@ T['start()']['respects `allowed_windows`'] = new_set({
   parametrize = { { { current = false } }, { { not_current = false } }, { { current = false, not_current = false } } },
 }, {
   test = function(allowed_windows_opts)
-    -- Check this only on Neovim>=0.9, as there is a slight change in
-    -- highlighting command line area. Probably, after
-    -- https://github.com/neovim/neovim/pull/20476
-    if child.fn.has('nvim-0.9') == 0 then return end
+    -- Check this only on Neovim>=0.10, as there is a slight change in
+    -- highlighting command line area
+    if child.fn.has('nvim-0.10') == 0 then return end
 
     child.set_size(6, 40)
     -- Make all showed messages full width
@@ -694,11 +712,6 @@ T['start()']['respects `hooks`'] = function()
   eq(child.lua_get('{ _G.n_before_start, _G.n_after_jump }'), { 1, 0 })
   type_keys('<CR>')
   eq(child.lua_get('{ _G.n_before_start, _G.n_after_jump }'), { 1, 1 })
-
-  -- Should also use buffer local config
-  if vim.fn.has('nvim-0.7') == 0 then
-    MiniTest.skip('Function values inside buffer variables are not supported in Neovim<0.7.')
-  end
 
   child.lua('MiniJump2d.stop()')
   child.lua([[vim.b.minijump2d_config = {
@@ -846,7 +859,7 @@ T['start()']['respects `config.silent`'] = function()
   child.set_size(10, 20)
 
   start()
-  sleep(1000 + 15)
+  sleep(helper_message_delay + small_time)
 
   -- Should not show helper message
   child.expect_screenshot()
@@ -956,6 +969,47 @@ T['gen_pattern_spotter()']['works in edge cases'] = function()
   child.expect_screenshot()
 end
 
+T['gen_union_spotter()'] = new_set()
+
+T['gen_union_spotter()']['works'] = function()
+  child.set_size(5, 25)
+
+  child.lua([[
+    local nonblank_start = MiniJump2d.gen_pattern_spotter('%S+', 'start')
+    _G.args_log = {}
+    _G.spotter_1 = function(...)
+      table.insert(_G.args_log, { ... })
+      return nonblank_start(...)
+    end
+
+    local word_start = MiniJump2d.gen_pattern_spotter('%w+', 'start')
+    _G.spotter_2 = function(...)
+      table.insert(_G.args_log, { ... })
+      return word_start(...)
+    end
+
+    _G.union_spotter = MiniJump2d.gen_union_spotter(_G.spotter_1, _G.spotter_2)
+  ]])
+
+  set_lines({ 'xxx x_x x_x xxx' })
+  child.lua('MiniJump2d.start({spotter = _G.union_spotter})')
+  child.expect_screenshot()
+end
+
+T['gen_union_spotter()']['validates arguments'] = function()
+  expect.error(
+    function() child.lua('MiniJump2d.gen_union_spotter(function() end, 1, function() end)') end,
+    'All.*callable'
+  )
+end
+
+T['gen_union_spotter()']['works with no arguments'] = function()
+  child.lua('_G.spotter = MiniJump2d.gen_union_spotter()')
+
+  set_lines({ 'xxx x_x x_x xxx' })
+  eq(child.lua_get('_G.spotter(1, {})'), {})
+end
+
 T['default_spotter()'] = new_set({
   hooks = {
     pre_case = function() child.set_size(5, 25) end,
@@ -988,7 +1042,7 @@ T['default_spotter()']['spots first capital letter'] = function()
   child.expect_screenshot()
 end
 
-T['default_spotter()']['corectly merges "overlapping" spots'] = function()
+T['default_spotter()']['correctly merges "overlapping" spots'] = function()
   set_lines({ 'XX () X_X' })
   start_default_spotter()
   child.expect_screenshot()
@@ -998,7 +1052,7 @@ T['default_spotter()']['works (almost) with multibyte character'] = function()
   set_lines({ 'ы ыы ыыы ы_ы ыЫыы' })
   start_default_spotter()
   -- NOTE: ideally it should end with 'hi j' but 'Ы' is not recognized as
-  -- captial letter in Lua patterns (because of different locale)
+  -- capital letter in Lua patterns (because of different locale)
   child.expect_screenshot()
 end
 
@@ -1091,9 +1145,9 @@ T['builtin_opts.single_character']['prompts helper message after one idle second
 
   start_single_char()
   eq(get_latest_message(), '')
-  sleep(1000 - 10)
+  sleep(helper_message_delay - small_time)
   eq(get_latest_message(), '')
-  sleep(10 + 1)
+  sleep(small_time + small_time)
 
   -- Should show helper message without adding it to `:messages` and causing
   -- hit-enter-prompt

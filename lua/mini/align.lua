@@ -40,7 +40,7 @@
 --- - Every user interaction is accompanied with helper status message showing
 ---   relevant information about current alignment process.
 ---
---- # Setup~
+--- # Setup ~
 ---
 --- This module needs a setup with `require('mini.align').setup({})` (replace
 --- `{}` with your `config` table). It will create global Lua table `MiniAlign`
@@ -54,7 +54,7 @@
 ---
 --- To stop module from showing non-error feedback, set `config.silent = true`.
 ---
---- # Comparisons~
+--- # Comparisons ~
 ---
 --- - 'junegunn/vim-easy-align':
 ---     - 'mini.align' is mostly designed after 'junegunn/vim-easy-align', so
@@ -86,7 +86,7 @@
 ---       desirable. 'mini.align' does not by design: use Visual selection or
 ---       textobject/motion to explicitly define region to align.
 ---
---- # Disabling~
+--- # Disabling ~
 ---
 --- To disable, set `vim.g.minialign_disable` (globally) or `vim.b.minialign_disable`
 --- (for a buffer) to `true`. Considering high number of different scenarios
@@ -359,35 +359,35 @@
 ---
 --- Equal sign ~
 ---
---- Lines:
+--- Lines: >
 ---
---- # This=is=assumed=to be a comment
---- "a ="
---- a =
---- a = 1
---- bbbb = 2
---- ccccccc = 3
---- ccccccccccccccc
---- ddd = 4
---- eeee === eee = eee = eee=f
---- fff = ggg += gg &&= gg
---- g != hhhhhhhh == 888
---- i   := 5
---- i     %= 5
---- i       *= 5
---- j     =~ 5
---- j   >= 5
---- aa      =>         123
---- aa <<= 123
---- aa        >>= 123
---- bbb               => 123
---- c     => 1233123
---- d   =>      123
---- dddddd &&= 123
---- dddddd ||= 123
---- dddddd /= 123
---- gg <=> ee
----
+---   # This=is=assumed=to be a comment
+---   "a ="
+---   a =
+---   a = 1
+---   bbbb = 2
+---   ccccccc = 3
+---   ccccccccccccccc
+---   ddd = 4
+---   eeee === eee = eee = eee=f
+---   fff = ggg += gg &&= gg
+---   g != hhhhhhhh == 888
+---   i   := 5
+---   i     %= 5
+---   i       *= 5
+---   j     =~ 5
+---   j   >= 5
+---   aa      =>         123
+---   aa <<= 123
+---   aa        >>= 123
+---   bbb               => 123
+---   c     => 1233123
+---   d   =>      123
+---   dddddd &&= 123
+---   dddddd ||= 123
+---   dddddd /= 123
+---   gg <=> ee
+--- <
 --- Key sequences:
 --- - `=`
 --- - `=jc`
@@ -400,7 +400,6 @@
 --- - `=fn==1<CR>`
 --- - `=<BS>fn==1<CR>t`
 --- - `=frow>7<CR>`
----
 ---@tag MiniAlign-examples
 
 ---@alias __align_with_preview boolean|nil Whether to align with live preview.
@@ -413,17 +412,12 @@ local H = {}
 ---
 ---@param config table|nil Module config table. See |MiniAlign.config|.
 ---
----@usage `require('mini.align').setup({})` (replace `{}` with your `config` table)
+---@usage >lua
+---   require('mini.align').setup() -- use default config
+---   -- OR
+---   require('mini.align').setup({}) -- replace {} with your config table
+--- <
 MiniAlign.setup = function(config)
-  -- TODO: Remove after Neovim<=0.6 support is dropped
-  if vim.fn.has('nvim-0.7') == 0 then
-    vim.notify(
-      '(mini.align) Neovim<0.7 is soft deprecated (module works but not supported).'
-        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
-        .. ' Please update your Neovim version.'
-    )
-  end
-
   -- Export module
   _G.MiniAlign = MiniAlign
 
@@ -451,23 +445,26 @@ end
 --- - Has signature `(steps, opts)` and should modify any of its input in place.
 ---
 --- Examples:
---- - Modifier function used for default 'i' modifier:
---- >
+--- - Modifier function used for default 'i' modifier: >lua
+---
 ---   function(steps, _)
 ---     table.insert(steps.pre_split, MiniAlign.gen_step.ignore_split())
 ---   end
 --- <
---- - Tweak 't' modifier to use highest indentation instead of keeping it:
---- >
+--- - Tweak 't' modifier to use highest indentation instead of keeping it: >lua
+---
 ---   require('mini.align').setup({
----     t = function(steps, _)
----       table.insert(steps.pre_justify, MiniAlign.gen_step.trim('both', 'high'))
----     end
+---     modifiers = {
+---       t = function(steps, _)
+---         local trim_high = MiniAlign.gen_step.trim('both', 'high')
+---         table.insert(steps.pre_justify, trim_high)
+---       end
+---     }
 ---   })
 --- <
 --- - Tweak `j` modifier to cycle through available "justify_side" option
----   values (like in 'junegunn/vim-easy-align'):
---- >
+---   values (like in 'junegunn/vim-easy-align'): >lua
+---
 ---   require('mini.align').setup({
 ---     modifiers = {
 ---       j = function(_, opts)
@@ -496,14 +493,15 @@ end
 --- alignment process.
 ---
 --- Examples:
---- - Align by default only first pair of columns:
---- >
+--- - Align by default only first pair of columns: >lua
+---
 ---   local align = require('mini.align')
 ---   align.setup({
 ---     steps = {
 ---       pre_justify = { align.gen_step.filter('n == 1') }
 ---     },
 ---   })
+--- <
 MiniAlign.config = {
   -- Module mappings. Use `''` (empty string) to disable one.
   mappings = {
@@ -692,7 +690,7 @@ MiniAlign.align_strings = function(strings, opts, steps)
     if H.can_be_parts(parts) then
       parts = MiniAlign.as_parts(parts)
     else
-      H.error('Output of `split` step should be convertable to parts. See `:h MiniAlign.as_parts()`.')
+      H.error('Output of `split` step should be convertible to parts. See `:h MiniAlign.as_parts()`.')
     end
   end
 
@@ -756,7 +754,7 @@ MiniAlign.align_user = function(mode)
     local id = H.user_modifier(with_preview, H.make_status_msg_chunks(opts, steps))
     n_iter = n_iter + 1
 
-    -- Stop in case user supplied inappropriate modifer id (abort)
+    -- Stop in case user supplied inappropriate modifier id (abort)
     -- Also stop in case of too many iterations (guard from infinite cycle)
     if id == nil or n_iter > 1000 then
       if lines_were_set then H.undo() end
@@ -799,37 +797,6 @@ MiniAlign.align_user = function(mode)
 
   -- Remove helper status message (if shown)
   H.unecho()
-end
-
---- Perfrom action in Normal mode
----
---- Used in Normal mode mapping. No need to use it directly.
----
----@param with_preview __align_with_preview
-MiniAlign.action_normal = function(with_preview)
-  if H.is_disabled() then return end
-
-  H.cache = { with_preview = with_preview }
-
-  -- Set 'operatorfunc' which will be later called with appropriate marks set
-  vim.cmd('set operatorfunc=v:lua.MiniAlign.align_user')
-  return 'g@'
-end
-
---- Perfrom action in Visual mode
----
---- Used in Visual mode mapping. No need to use it directly.
----
----@param with_preview __align_with_preview
-MiniAlign.action_visual = function(with_preview)
-  if H.is_disabled() then return end
-
-  H.cache = { with_preview = with_preview }
-
-  -- Perform action and exit Visual mode
-  local mode = ({ ['v'] = 'char', ['V'] = 'line', ['\22'] = 'block' })[vim.fn.mode(1)]
-  MiniAlign.align_user(mode)
-  vim.cmd('normal! \27')
 end
 
 --- Convert 2d array of strings to parts
@@ -885,7 +852,7 @@ end
 ---   in a row). Value "keep" keeps it; "low" makes all indent equal to the
 ---   lowest across rows; "high" - highest across rows; "remove" - removes indent.
 ---
----@usage >
+---@usage >lua
 ---   parts = MiniAlign.as_parts({ { 'a', 'b' }, { 'c' } })
 ---   print(vim.inspect(parts.get_dims())) -- Should be { row = 2, col = 2 }
 ---
@@ -896,6 +863,7 @@ end
 ---
 ---   parts.trim('both', 'remove').pair()
 ---   print(vim.inspect(parts)) -- Should be { { '1a11b2' }, { '2c1' } }
+--- <
 MiniAlign.as_parts = function(arr2d)
   local ok, msg = H.can_be_parts(arr2d)
   if not ok then H.error('Input of `as_parts()` ' .. msg) end
@@ -1041,7 +1009,7 @@ end
 --- options supplied at execution. This design is mostly because their output
 --- can be used several times in pre-steps.
 ---
----@usage >
+---@usage >lua
 ---   local align = require('mini.align')
 ---   align.setup({
 ---     modifiers = {
@@ -1059,6 +1027,7 @@ end
 ---       pre_justify = { align.gen_step.filter('n == 1') },
 ---     },
 ---   })
+--- <
 MiniAlign.gen_step = {}
 
 --- Generate default split step
@@ -1254,8 +1223,8 @@ end
 ---
 ---@param direction string|nil Which sides to trim whitespace. One of "both"
 ---   (default), "left", "right", "none".
----@param indent string|nil What to do with possible indent (left whitespace of first
----   string in a row). One of "keep" (default), "low", "high", "remove".
+---@param indent string|nil What to do with possible indent (left whitespace
+---   of first string in a row). One of "keep" (default), "low", "high", "remove".
 ---
 ---@return table A step named "trim" and with appropriate callable action.
 MiniAlign.gen_step.trim = function(direction, indent)
@@ -1264,7 +1233,7 @@ end
 
 -- Helper data ================================================================
 -- Module default config
-H.default_config = MiniAlign.config
+H.default_config = vim.deepcopy(MiniAlign.config)
 
 -- Cache for various operations
 H.cache = {}
@@ -1329,7 +1298,7 @@ H.setup_config = function(config)
   -- General idea: if some table elements are not present in user-supplied
   -- `config`, take them from default config
   vim.validate({ config = { config, 'table', true } })
-  config = vim.tbl_deep_extend('force', H.default_config, config or {})
+  config = vim.tbl_deep_extend('force', vim.deepcopy(H.default_config), config or {})
 
   vim.validate({
     mappings = { config.mappings, 'table' },
@@ -1351,18 +1320,45 @@ H.apply_config = function(config)
   MiniAlign.config = config
 
   --stylua: ignore start
-  H.map('n', config.mappings.start,              'v:lua.MiniAlign.action_normal(v:false)',      { expr = true, desc = 'Align' })
-  H.map('x', config.mappings.start,              '<Cmd>lua MiniAlign.action_visual(false)<CR>', { desc = 'Align' })
+  H.map('n', config.mappings.start, H.make_action_normal(false), { expr = true, desc = 'Align' })
+  H.map('x', config.mappings.start, H.make_action_visual(false), { desc = 'Align' })
 
-  H.map('n', config.mappings.start_with_preview, 'v:lua.MiniAlign.action_normal(v:true)',       { expr = true, desc = 'Align with preview' })
-  H.map('x', config.mappings.start_with_preview, '<Cmd>lua MiniAlign.action_visual(true)<CR>',  { desc = 'Align with preview' })
+  H.map('n', config.mappings.start_with_preview, H.make_action_normal(true), { expr = true, desc = 'Align with preview' })
+  H.map('x', config.mappings.start_with_preview, H.make_action_visual(true), { desc = 'Align with preview' })
   --stylua: ignore end
 end
 
 H.is_disabled = function() return vim.g.minialign_disable == true or vim.b.minialign_disable == true end
 
-H.get_config =
-  function(config) return vim.tbl_deep_extend('force', MiniAlign.config, vim.b.minialign_config or {}, config or {}) end
+H.get_config = function(config)
+  return vim.tbl_deep_extend('force', MiniAlign.config, vim.b.minialign_config or {}, config or {})
+end
+
+-- Mappings -------------------------------------------------------------------
+H.make_action_normal = function(with_preview)
+  return function()
+    if H.is_disabled() then return end
+
+    H.cache = { with_preview = with_preview }
+
+    -- Set 'operatorfunc' which will be later called with appropriate marks set
+    vim.o.operatorfunc = 'v:lua.MiniAlign.align_user'
+    return 'g@'
+  end
+end
+
+H.make_action_visual = function(with_preview)
+  return function()
+    if H.is_disabled() then return end
+
+    H.cache = { with_preview = with_preview }
+
+    -- Perform action and exit Visual mode
+    local mode = ({ ['v'] = 'char', ['V'] = 'line', ['\22'] = 'block' })[vim.fn.mode(1)]
+    MiniAlign.align_user(mode)
+    vim.cmd('normal! \27')
+  end
+end
 
 -- Work with steps and options ------------------------------------------------
 H.is_valid_steps = function(x, x_name)
@@ -1856,7 +1852,7 @@ end
 
 -- Predicates -----------------------------------------------------------------
 H.is_array_of = function(x, predicate)
-  if not vim.tbl_islist(x) then return false end
+  if not H.islist(x) then return false end
   for _, v in ipairs(x) do
     if not predicate(v) then return false end
   end
@@ -1886,27 +1882,10 @@ H.is_visual_mode = function() return vim.tbl_contains({ 'v', 'V', '\22' }, vim.f
 H.is_whitespace = function(x) return type(x) == 'string' and x:find('^%s*$') ~= nil end
 
 -- Work with get/set text -----------------------------------------------------
---- Get text from current buffer
----
---- Needed for compatibility with Neovim<=0.6 which doesn't have
---- `vim.api.nvim_buf_get_text()`.
----@private
 H.get_text = function(start_row, start_col, end_row, end_col)
-  -- TODO: Remove this whole function after Neovim<=0.6 support is dropped
-  if vim.api.nvim_buf_get_text ~= nil then
-    return vim.api.nvim_buf_get_text(0, start_row, start_col, end_row, end_col, {})
-  end
-  local text = H.get_lines(start_row, end_row + 1)
-  if #text == 0 then return text end
-  text[#text] = text[#text]:sub(1, end_col)
-  text[1] = text[1]:sub(start_col + 1)
-  return text
+  return vim.api.nvim_buf_get_text(0, start_row, start_col, end_row, end_col, {})
 end
 
---- Get lines from current buffer
----
---- Added for completeness.
----@private
 H.get_lines = function(start_row, end_row) return vim.api.nvim_buf_get_lines(0, start_row, end_row, true) end
 
 --- Set text in current buffer without affecting marks
@@ -1960,15 +1939,10 @@ end
 
 H.error = function(msg) error(string.format('(mini.align) %s', msg), 0) end
 
-H.map = function(mode, key, rhs, opts)
-  if key == '' then return end
-
-  opts = vim.tbl_deep_extend('force', { noremap = true, silent = true }, opts or {})
-
-  -- Use mapping description only in Neovim>=0.7
-  if vim.fn.has('nvim-0.7') == 0 then opts.desc = nil end
-
-  vim.api.nvim_set_keymap(mode, key, rhs, opts)
+H.map = function(mode, lhs, rhs, opts)
+  if lhs == '' then return end
+  opts = vim.tbl_deep_extend('force', { silent = true }, opts or {})
+  vim.keymap.set(mode, lhs, rhs, opts)
 end
 
 H.slice_mod = function(x, i) return x[((i - 1) % #x) + 1] end
@@ -2058,5 +2032,8 @@ H.undo = function()
     vim.cmd('silent! lockmarks normal! u')
   end
 end
+
+-- TODO: Remove after compatibility with Neovim=0.9 is dropped
+H.islist = vim.fn.has('nvim-0.10') == 1 and vim.islist or vim.tbl_islist
 
 return MiniAlign

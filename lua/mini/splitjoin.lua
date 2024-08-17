@@ -74,7 +74,7 @@
 ---       some edge cases, but **requires** tree-sitter parser.
 ---     - Doesn't work inside comments or strings.
 ---
---- # Disabling~
+--- # Disabling ~
 ---
 --- To disable, set `g:minisplitjoin_disable` (globally) or `b:minisplitjoin_disable`
 --- (for a buffer) to `v:true`. Considering high number of different scenarios
@@ -85,10 +85,11 @@
 --- - POSITION - table with fields <line> and <col> containing line and column
 ---   numbers respectively. Both are 1-indexed. Example: `{ line = 2, col = 1 }`.
 ---
---- - REGION - table representing region in a buffer. Fields: <from> and
----   <to> for inclusive start and end positions. Example: >
+--- - REGION - table representing region in a buffer. Fields: <from> and <to> for
+---   inclusive start and end positions. Example: >lua
 ---
 ---   { from = { line = 1, col = 1 }, to = { line = 2, col = 1 } }
+--- <
 ---@tag MiniSplitjoin-glossary
 
 ---@alias __splitjoin_options table|nil Options. Has structure from |MiniSplitjoin.config|
@@ -119,7 +120,11 @@ local H = {}
 ---
 ---@param config table|nil Module config table. See |MiniSplitjoin.config|.
 ---
----@usage `require('mini.splitjoin').setup({})` (replace `{}` with your `config` table)
+---@usage >lua
+---   require('mini.splitjoin').setup() -- use default config
+---   -- OR
+---   require('mini.splitjoin').setup({}) -- replace {} with your config table
+--- <
 MiniSplitjoin.setup = function(config)
   -- Export module
   _G.MiniSplitjoin = MiniSplitjoin
@@ -142,7 +147,7 @@ end
 --- patterns. General idea is to convert whole buffer into a single line,
 --- perform string search, and convert results back into 2d positions.
 ---
---- Example configuration: >
+--- Example configuration: >lua
 ---
 ---   require('mini.splitjoin').setup({
 ---     detect = {
@@ -156,7 +161,7 @@ end
 ---       exclude_regions = {},
 ---     },
 ---   })
----
+--- <
 --- ## Outer brackets ~
 ---
 --- `detect.brackets` is an array of Lua patterns used to find enclosing region.
@@ -293,7 +298,7 @@ end
 --- - Find separator positions using `separator` and `exclude_regions` from `opts`.
 ---   Both brackets are treated as separators.
 ---   See |MiniSplitjoin.config.detect| for more details.
----   Note: stop if no join positions are found.
+---   Note: stop if no separator positions are found.
 ---
 --- - Modify separator positions to represent split positions. Last split position
 ---   (which is inferred from right bracket) is moved one column to left so that
@@ -412,7 +417,7 @@ end
 --- All generated post-hooks return updated versions of their input reflecting
 --- changes done inside hook.
 ---
---- Example for `lua` filetype (place it in 'lua.lua' filetype plugin, |ftplugin|): >
+--- Example for `lua` filetype (place it in 'lua.lua' filetype plugin, |ftplugin|): >lua
 ---
 ---   local gen_hook = MiniSplitjoin.gen_hook
 ---   local curly = { brackets = { '%b{}' } }
@@ -431,6 +436,7 @@ end
 ---     split = { hooks_post = { add_comma_curly } },
 ---     join  = { hooks_post = { del_comma_curly, pad_curly } },
 ---   }
+--- <
 MiniSplitjoin.gen_hook = {}
 
 --- Generate hook to pad brackets
@@ -705,19 +711,19 @@ MiniSplitjoin.operator = function(task)
   end
 
   if H.is_disabled() then
-    -- Using `<Esc>` helps to stop moving cursor caused by current
-    -- implementation detail of adding `' '` inside expression mapping
+    -- Using `<Esc>` prevents moving cursor caused by current implementation
+    -- detail of adding `' '` inside expression mapping
     return [[\<Esc>]]
   end
 
   H.cache.operator_task = task
-  vim.cmd('set operatorfunc=v:lua.MiniSplitjoin.operator')
+  vim.o.operatorfunc = 'v:lua.MiniSplitjoin.operator'
   return 'g@'
 end
 
 -- Helper data ================================================================
 -- Module default config
-H.default_config = MiniSplitjoin.config
+H.default_config = vim.deepcopy(MiniSplitjoin.config)
 
 H.ns_id = vim.api.nvim_create_namespace('MiniSplitjoin')
 
@@ -729,7 +735,7 @@ H.setup_config = function(config)
   -- General idea: if some table elements are not present in user-supplied
   -- `config`, take them from default config
   vim.validate({ config = { config, 'table', true } })
-  config = vim.tbl_deep_extend('force', H.default_config, config or {})
+  config = vim.tbl_deep_extend('force', vim.deepcopy(H.default_config), config or {})
 
   vim.validate({
     mappings = { config.mappings, 'table' },
@@ -981,8 +987,7 @@ H.get_neighborhood = function()
   end
 
   -- Convert 2d region to 1d span
-  local region_to_span =
-    function(region) return { from = pos_to_offset(region.from), to = pos_to_offset(region.to) } end
+  local region_to_span = function(region) return { from = pos_to_offset(region.from), to = pos_to_offset(region.to) } end
 
   -- Convert 1d span to 2d region
   local span_to_region = function(span) return { from = offset_to_pos(span.from), to = offset_to_pos(span.to) } end
@@ -1103,7 +1108,7 @@ H.error = function(msg) error(string.format('(mini.splitjoin) %s', msg), 0) end
 
 H.map = function(mode, lhs, rhs, opts)
   if lhs == '' then return end
-  opts = vim.tbl_deep_extend('force', { remap = false, silent = true }, opts or {})
+  opts = vim.tbl_deep_extend('force', { silent = true }, opts or {})
   vim.keymap.set(mode, lhs, rhs, opts)
 end
 

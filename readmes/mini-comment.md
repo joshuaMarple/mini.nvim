@@ -27,9 +27,13 @@ https://user-images.githubusercontent.com/24854248/173044250-1a8bceae-8f14-40e2-
 ## Features
 
 - Commenting in Normal mode respects `v:count` and is dot-repeatable.
-- Comment structure is inferred from 'commentstring'.
+- Comment structure is inferred from 'commentstring': either from current buffer or from locally active tree-sitter language (only on Neovim>=0.9). It can be customized via `options.custom_commentstring`.
 - Handles both tab and space indenting (but not when they are mixed).
 - Allows custom hooks before and after successful commenting.
+- Configurable options for some nuanced behavior.
+
+Notes:
+- To use tree-sitter aware commenting, global value of 'commentstring' should be `''` (empty string). This is the default value in Neovim>=0.9, so make sure to not set it manually.
 
 ## Installation
 
@@ -41,6 +45,32 @@ There are two branches to install from:
 - `stable` will be updated only upon releases with code tested during public beta-testing phase in `main` branch.
 
 Here are code snippets for some common installation methods (use only one):
+
+<details>
+<summary>With <a href="https://github.com/echasnovski/mini.nvim/blob/main/readmes/mini-deps.md">mini.deps</a></summary>
+<table>
+    <thead>
+        <tr>
+            <th>Github repo</th>
+            <th>Branch</th> <th>Code snippet</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td rowspan=2>'mini.nvim' library</td> <td>Main</td> <td rowspan=2><i>Follow recommended 'mini.deps' installation</i></td>
+        </tr>
+        <tr>
+            <td>Stable</td>
+        </tr>
+        <tr>
+            <td rowspan=2>Standalone plugin</td> <td>Main</td> <td><code>add('echasnovski/mini.comment')</code></td>
+        </tr>
+        <tr>
+            <td>Stable</td> <td><code>add({ source = 'echasnovski/mini.comment', checkout = 'stable' })</code></td>
+        </tr>
+    </tbody>
+</table>
+</details>
 
 <details>
 <summary>With <a href="https://github.com/folke/lazy.nvim">folke/lazy.nvim</a></summary>
@@ -65,33 +95,6 @@ Here are code snippets for some common installation methods (use only one):
         </tr>
         <tr>
             <td>Stable</td> <td><code>{ 'echasnovski/mini.comment', version = '*' },</code></td>
-        </tr>
-    </tbody>
-</table>
-</details>
-
-<details>
-<summary>With <a href="https://github.com/wbthomason/packer.nvim">wbthomason/packer.nvim</a></summary>
-<table>
-    <thead>
-        <tr>
-            <th>Github repo</th>
-            <th>Branch</th> <th>Code snippet</th>
-        </tr>
-    </thead>
-    <tbody>
-        <tr>
-            <td rowspan=2>'mini.nvim' library</td>
-            <td>Main</td> <td><code>use 'echasnovski/mini.nvim'</code></td>
-        </tr>
-        <tr>
-            <td>Stable</td> <td><code>use { 'echasnovski/mini.nvim', branch = 'stable' }</code></td>
-        </tr>
-        <tr>
-            <td rowspan=2>Standalone plugin</td> <td>Main</td> <td><code>use 'echasnovski/mini.comment'</code></td>
-        </tr>
-        <tr>
-            <td>Stable</td> <td><code>use { 'echasnovski/mini.comment', branch = 'stable' }</code></td>
         </tr>
     </tbody>
 </table>
@@ -139,13 +142,16 @@ Here are code snippets for some common installation methods (use only one):
 {
   -- Options which control module behavior
   options = {
-    -- Whether to ignore blank lines
+    -- Function to compute custom 'commentstring' (optional)
+    custom_commentstring = nil,
+
+    -- Whether to ignore blank lines when commenting
     ignore_blank_line = false,
 
     -- Whether to recognize as comment only lines without indent
     start_of_line = false,
 
-    -- Whether to ensure single space pad for comment parts
+    -- Whether to force single space inner padding for comment parts
     pad_comment_parts = true,
   },
 
@@ -158,7 +164,11 @@ Here are code snippets for some common installation methods (use only one):
     -- Toggle comment on current line
     comment_line = 'gcc',
 
+    -- Toggle comment on visual selection
+    comment_visual = 'gc',
+
     -- Define 'comment' textobject (like `dgc` - delete whole comment block)
+    -- Works also in Visual mode if mapping differs from `comment_visual`
     textobject = 'gc',
   },
 
@@ -174,6 +184,7 @@ Here are code snippets for some common installation methods (use only one):
 
 ## Similar plugins
 
+- Built-in commenting in Neovim>=0.10, see `:h commenting` (implemented with 'mini.comment' as reference)
 - [numToStr/Comment.nvim](https://github.com/numToStr/Comment.nvim)
 - [tpope/vim-commentary](https://github.com/tpope/vim-commentary)
 - [preservim/nerdcommenter](https://github.com/preservim/nerdcommenter)

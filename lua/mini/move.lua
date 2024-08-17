@@ -61,7 +61,7 @@
 ---     - Has extra functionality beyond moving text, like duplication.
 ---       While 'mini.move' concentrates only on moving functionality.
 ---
---- # Disabling~
+--- # Disabling ~
 ---
 --- To disable, set `vim.g.minimove_disable` (globally) or `vim.b.minimove_disable`
 --- (for a buffer) to `true`. Considering high number of different scenarios
@@ -85,17 +85,12 @@ local H = {}
 ---
 ---@param config table|nil Module config table. See |MiniMove.config|.
 ---
----@usage `require('mini.move').setup({})` (replace `{}` with your `config` table)
+---@usage >lua
+---   require('mini.move').setup() -- use default config
+---   -- OR
+---   require('mini.move').setup({}) -- replace {} with your config table
+--- <
 MiniMove.setup = function(config)
-  -- TODO: Remove after Neovim<=0.6 support is dropped
-  if vim.fn.has('nvim-0.7') == 0 then
-    vim.notify(
-      '(mini.move) Neovim<0.7 is soft deprecated (module works but not supported).'
-        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
-        .. ' Please update your Neovim version.'
-    )
-  end
-
   -- Export module
   _G.MiniMove = MiniMove
 
@@ -112,9 +107,9 @@ end
 ---@eval return MiniDoc.afterlines_to_code(MiniDoc.current.eval_section)
 ---@text # Mappings ~
 ---
---- Other possible choices of mappings:
+--- Other possible choices of mappings: >lua
 ---
---- - `HJKL` for moving visual selection (overrides |H|, |L|, |v_J| in Visual mode): >
+---   -- `HJKL` for moving visual selection (overrides H, L, J in Visual mode)
 ---   require('mini.move').setup({
 ---     mappings = {
 ---       left  = 'H',
@@ -124,7 +119,7 @@ end
 ---     }
 ---   })
 ---
---- - Shift + arrows: >
+---   -- Shift + arrows
 ---   require('mini.move').setup({
 ---     mappings = {
 ---       left  = '<S-left>',
@@ -138,6 +133,7 @@ end
 ---       line_up    = '<S-up>',
 ---     }
 ---   })
+--- <
 MiniMove.config = {
   -- Module mappings. Use `''` (empty string) to disable one.
   mappings = {
@@ -193,6 +189,12 @@ MiniMove.move_selection = function(direction, opts)
   local dir_type = (direction == 'up' or direction == 'down') and 'vert' or 'hori'
   local is_linewise = cur_mode == 'V'
 
+  -- Make early return in small buffer
+  if vim.api.nvim_buf_line_count(0) == 1 then
+    if is_linewise and dir_type == 'vert' then return end
+    if not is_linewise and vim.fn.getline(1):len() == 0 then return end
+  end
+
   -- Cache useful data because it will be reset when executing commands
   local n_times = opts.n_times or vim.v.count1
   local ref_curpos, ref_last_col = vim.fn.getcurpos(), vim.fn.col('$')
@@ -226,8 +228,9 @@ MiniMove.move_selection = function(direction, opts)
   if not cache_virtualedit:find('all') then vim.o.virtualedit = 'onemore' end
 
   -- Cut selection while saving caching register
-  local cache_z_reg = vim.fn.getreg('z')
-  cmd('"zx')
+  local cache_z_reg = vim.fn.getreginfo('z')
+  -- - Don't use `"zx` directly to not affect registers 1-9
+  cmd('"zygv"_x')
 
   -- Detect edge selection: last line(s) for vertical and last character(s)
   -- for horizontal. At this point (after cutting selection) cursor is on the
@@ -314,6 +317,7 @@ end
 ---@param opts __move_opts
 MiniMove.move_line = function(direction, opts)
   if H.is_disabled() or not vim.o.modifiable then return end
+  if vim.api.nvim_buf_line_count(0) == 1 and (direction == 'down' or direction == 'up') then return end
 
   opts = vim.tbl_deep_extend('force', H.get_config().options, opts or {})
 
@@ -344,9 +348,10 @@ MiniMove.move_line = function(direction, opts)
     return
   end
 
-  -- Cut curre lint while saving caching register
-  local cache_z_reg = vim.fn.getreg('z')
-  cmd('"zdd')
+  -- Cut current line while saving caching register
+  local cache_z_reg = vim.fn.getreginfo('z')
+  -- - Don't use `"zdd` directly to not affect registers 1-9
+  cmd('"zyy"_dd')
 
   -- Move cursor
   local paste_key = direction == 'up' and 'P' or 'p'
@@ -372,7 +377,7 @@ end
 
 -- Helper data ================================================================
 -- Module default config
-H.default_config = MiniMove.config
+H.default_config = vim.deepcopy(MiniMove.config)
 
 H.move_keys = { left = 'h', down = 'j', up = 'k', right = 'l' }
 H.indent_keys = { left = '<', right = '>' }
@@ -397,7 +402,7 @@ H.setup_config = function(config)
   -- General idea: if some table elements are not present in user-supplied
   -- `config`, take them from default config
   vim.validate({ config = { config, 'table', true } })
-  config = vim.tbl_deep_extend('force', H.default_config, config or {})
+  config = vim.tbl_deep_extend('force', vim.deepcopy(H.default_config), config or {})
 
   vim.validate({
     mappings = { config.mappings, 'table' },
@@ -441,19 +446,15 @@ end
 
 H.is_disabled = function() return vim.g.minimove_disable == true or vim.b.minimove_disable == true end
 
-H.get_config =
-  function(config) return vim.tbl_deep_extend('force', MiniMove.config, vim.b.minimove_config or {}, config or {}) end
+H.get_config = function(config)
+  return vim.tbl_deep_extend('force', MiniMove.config, vim.b.minimove_config or {}, config or {})
+end
 
 -- Utilities ------------------------------------------------------------------
-H.map = function(mode, key, rhs, opts)
-  if key == '' then return end
-
-  opts = vim.tbl_deep_extend('force', { noremap = true, silent = true }, opts or {})
-
-  -- Use mapping description only in Neovim>=0.7
-  if vim.fn.has('nvim-0.7') == 0 then opts.desc = nil end
-
-  vim.api.nvim_set_keymap(mode, key, rhs, opts)
+H.map = function(mode, lhs, rhs, opts)
+  if lhs == '' then return end
+  opts = vim.tbl_deep_extend('force', { silent = true }, opts or {})
+  vim.keymap.set(mode, lhs, rhs, opts)
 end
 
 H.make_cmd_normal = function(include_undojoin)
@@ -465,7 +466,7 @@ H.make_cmd_normal = function(include_undojoin)
 
     -- Disable 'mini.bracketed' to avoid unwanted entries to its yank history
     local cache_minibracketed_disable = vim.b.minibracketed_disable
-    local cache_unnamed_register = vim.fn.getreg('"')
+    local cache_unnamed_register = { points_to = vim.fn.getreginfo('"').points_to }
 
     -- Don't track possible put commands into yank history
     vim.b.minibracketed_disable = true

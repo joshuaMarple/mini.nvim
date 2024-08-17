@@ -27,7 +27,11 @@
 ---
 --- - Works in Visual and Operator-pending (with dot-repeat) modes.
 ---
---- - Preconfigured ways of computing jump spots (see |MiniJump2d.builtin_opts|).
+--- - Preconfigured ways of computing jump spots (see |MiniJump2d.builtin_opts|):
+---     - Starts of lines.
+---     - Starts of words.
+---     - Single character from user input.
+---     - Variable length query from user input.
 ---
 --- - Works with multibyte characters.
 ---
@@ -44,11 +48,11 @@
 ---   unique, jump is performed. If it wasn't unique, possible jump spots are
 ---   filtered to those having the same label character.
 ---
---- - Repeat previous step until there is only one possible jump spot or type `<CR>`
+--- - Repeat previous step until there is only one possible jump spot or type <CR>
 ---   to jump to first available jump spot. Typing anything else stops jumping
 ---    without moving cursor.
 ---
---- # Setup~
+--- # Setup ~
 ---
 --- This module needs a setup with `require('mini.jump2d').setup({})` (replace
 --- `{}` with your `config` table). It will create global Lua table
@@ -63,21 +67,27 @@
 ---
 --- To stop module from showing non-error feedback, set `config.silent = true`.
 ---
---- # Example usage~
+--- # Example usage ~
 ---
---- - Modify default jumping to use only current window at or after cursor line: >
+--- - Modify default jumping to use only current window at or after cursor line: >lua
+---
 ---   require('mini.jump2d').setup({
 ---     allowed_lines = { cursor_before = false },
 ---     allowed_windows = { not_current = false },
 ---   })
---- - `lua MiniJump2d.start(MiniJump2d.builtin_opts.line_start)` - jump to word
----   start using combination of options supplied in |MiniJump2d.config| and
----   |MiniJump2d.builtin_opts.line_start|.
---- - `lua MiniJump2d.start(MiniJump2d.builtin_opts.single_character)` - jump
----   to single character typed after executing this command.
+--- <
+--- - Jump to word start using combination of options supplied in
+---   |MiniJump2d.config| and |MiniJump2d.builtin_opts.line_start|: >vim
+---
+---   :lua MiniJump2d.start(MiniJump2d.builtin_opts.line_start)
+--- <
+--- - Jump to a single character typed after executing this command: >vim
+---
+---   :lua MiniJump2d.start(MiniJump2d.builtin_opts.single_character)
+--- <
 --- - See more examples in |MiniJump2d.start| and |MiniJump2d.builtin_opts|.
 ---
---- # Comparisons~
+--- # Comparisons ~
 ---
 --- - 'phaazon/hop.nvim':
 ---     - Both are fast, customizable, and extensible (user can write their own
@@ -99,18 +109,23 @@
 ---     - 'mini.jump2d' has opinionated default algorithm of computing jump
 ---       spots. See |MiniJump2d.default_spotter|.
 ---
---- # Highlight groups~
+--- # Highlight groups ~
 ---
 --- * `MiniJump2dSpot` - highlighting of jump spot's next step. By default it
 ---   uses label with highest contrast while not being too visually demanding:
 ---   white on black for dark 'background', black on white for light. If it
 ---   doesn't suit your liking, try couple of these alternatives (or choose
----   your own, of course):
----     - `hi MiniJump2dSpot gui=reverse` - reverse underlying highlighting (more
----       colorful while being visible in any colorscheme).
----     - `hi MiniJump2dSpot gui=bold,italic` - bold italic.
----     - `hi MiniJump2dSpot gui=undercurl guisp=red` - red undercurl.
+---   your own, of course): >lua
 ---
+---     -- Reverse underlying colors (mostly *very* visible in any colorscheme)
+---     vim.api.nvim_set_hl(0, 'MiniJump2dSpot', { reverse = true })
+---
+---     -- Bold italic
+---     vim.api.nvim_set_hl(0, 'MiniJump2dSpot', { bold = true, italic = true })
+---
+---     -- Red undercurl
+---     vim.api.nvim_set_hl(0, 'MiniJump2dSpot', { sp = 'Red', undercurl = true })
+--- <
 --- * `MiniJump2dSpotUnique` - highlighting of jump spot's next step if it has
 ---   unique label. By default links to `MiniJump2dSpot`.
 ---
@@ -123,7 +138,7 @@
 ---
 --- To change any highlight group, modify it directly with |:highlight|.
 ---
---- # Disabling~
+--- # Disabling ~
 ---
 --- To disable, set `vim.g.minijump2d_disable` (globally) or
 --- `vim.b.minijump2d_disable` (for a buffer) to `true`. Considering high
@@ -139,17 +154,12 @@ local H = {}
 ---
 ---@param config table|nil Module config table. See |MiniJump2d.config|.
 ---
----@usage `require('mini.jump2d').setup({})` (replace `{}` with your `config` table)
+---@usage >lua
+---   require('mini.jump2d').setup() -- use default config
+---   -- OR
+---   require('mini.jump2d').setup({}) -- replace {} with your config table
+--- <
 MiniJump2d.setup = function(config)
-  -- TODO: Remove after Neovim<=0.6 support is dropped
-  if vim.fn.has('nvim-0.7') == 0 then
-    vim.notify(
-      '(mini.jump2d) Neovim<0.7 is soft deprecated (module works but not supported).'
-        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
-        .. ' Please update your Neovim version.'
-    )
-  end
-
   -- Export module
   _G.MiniJump2d = MiniJump2d
 
@@ -159,51 +169,20 @@ MiniJump2d.setup = function(config)
   -- Apply config
   H.apply_config(config)
 
-  -- Corrections for default `<CR>` mapping to not interfer with popular usages
-  if config.mappings.start_jumping == '<CR>' then
-    vim.api.nvim_exec(
-      [[augroup MiniJump2d
-          au!
-          autocmd FileType qf nnoremap <buffer> <CR> <CR>
-          autocmd CmdwinEnter * nnoremap <buffer> <CR> <CR>
-        augroup END]],
-      false
-    )
-  end
+  -- Define behavior
+  H.create_autocommands(config)
 
-  -- Create highlighting
-  local is_light_bg = vim.o.background == 'light'
-  local bg_color = is_light_bg and 'white' or 'black'
-  local fg_color = is_light_bg and 'black' or 'white'
-
-  local main_hl_cmd =
-    string.format('hi default MiniJump2dSpot guifg=%s guibg=%s gui=bold,nocombine', fg_color, bg_color)
-  vim.cmd(main_hl_cmd)
-
-  local ahead_hl_cmd = string.format('hi default MiniJump2dSpotAhead guifg=grey guibg=%s gui=nocombine', bg_color)
-  vim.cmd(ahead_hl_cmd)
-
-  vim.cmd('hi default link MiniJump2dSpotUnique MiniJump2dSpot')
-  vim.cmd('hi default link MiniJump2dDim Comment')
-
-  local augroup_hl_cmd = string.format(
-    [[augroup MiniJump2d
-        au ColorScheme * %s
-        au ColorScheme * %s
-      augroup END]],
-    main_hl_cmd,
-    ahead_hl_cmd
-  )
-  vim.api.nvim_exec(augroup_hl_cmd, false)
+  -- Create default highlighting
+  H.create_default_hl()
 end
 
 --- Module config
 ---
 --- Default values:
 ---@eval return MiniDoc.afterlines_to_code(MiniDoc.current.eval_section)
----@text # Options~
+---@text # Options ~
 ---
---- ## Spotter function~
+--- ## Spotter function ~
 ---
 --- Actual computation of possible jump spots is done through spotter function.
 --- It should have the following arguments:
@@ -231,10 +210,10 @@ end
 --- jump spots (like, for example, |MiniJump2d.builtin_opts.word_start|).
 --- Default is 0 to not show anything ahead as it reduces visual noise.
 ---
---- Option `view.dim` contols whether to dim lines with at least one jump spot.
---- Dimming is done by applying "MiniJump2dDim" highlight group to the whol line.
+--- Option `view.dim` controls whether to dim lines with at least one jump spot.
+--- Dimming is done by applying "MiniJump2dDim" highlight group to the whole line.
 ---
---- ## Allowed lines~
+--- ## Allowed lines ~
 ---
 --- Option `allowed_lines` controls which lines will be used for computing
 --- possible jump spots:
@@ -246,7 +225,7 @@ end
 ---   (at, after) cursor line of all processed windows are forwarded to spotter
 ---   function. Otherwise, they don't. This allows control of jump "direction".
 ---
---- ## Hooks~
+--- ## Hooks ~
 ---
 --- Following hook functions can be used to further tweak jumping experience:
 --- - `before_start` - called without arguments first thing when jump starts.
@@ -308,7 +287,7 @@ MiniJump2d.config = {
 ---
 --- Compute possible jump spots, visualize them and wait for iterative filtering.
 ---
---- First computation of possible jump spots~
+--- First computation of possible jump spots ~
 ---
 --- - Process allowed windows (current and/or not current; controlled by
 ---   `allowed_windows` option) by visible lines from top to bottom. For each
@@ -326,12 +305,12 @@ MiniJump2d.config = {
 ---   spot over another. Basically, it means "use all labels at each step of
 ---   iterative filtering as equally as possible".
 ---
---- Visualization~
+--- Visualization ~
 ---
 --- Current label for each possible jump spot is shown at that position
 --- overriding everything underneath it.
 ---
---- Iterative filtering~
+--- Iterative filtering ~
 ---
 --- Labels of possible jump spots are computed in order to use them as equally
 --- as possible.
@@ -360,14 +339,18 @@ MiniJump2d.config = {
 ---     - <hl_group_dim> - which highlight group to use dimming used lines.
 ---       Default: "MiniJump2dSpotDim".
 ---
----@usage - Start default jumping:
----   `MiniJump2d.start()`
---- - Jump to word start:
----   `MiniJump2d.start(MiniJump2d.builtin_opts.word_start)`
---- - Jump to single character from user input (follow by typing one character):
----   `MiniJump2d.start(MiniJump2d.builtin_opts.single_character)`
---- - Jump to first character of punctuation group only inside current window
----   which is placed at cursor line; visualize with 'hl-Search': >
+---@usage >lua
+---   -- Start default jumping
+---   MiniJump2d.start()
+---
+---   -- Jump to word start
+---   MiniJump2d.start(MiniJump2d.builtin_opts.word_start)
+---
+---   -- Jump to single character from user input (follow by typing one character)
+---   MiniJump2d.start(MiniJump2d.builtin_opts.single_character)
+---
+---   -- Jump to first character of punctuation group only inside current window
+---   -- which is placed at cursor line; visualize with `Search`
 ---   MiniJump2d.start({
 ---     spotter = MiniJump2d.gen_pattern_spotter('%p+'),
 ---     allowed_lines = { cursor_before = false, cursor_after = false },
@@ -412,14 +395,7 @@ MiniJump2d.start = function(opts)
 
   H.cache.spots = spots
 
-  -- Defer advancing jump to allow drawing before invoking `getcharstr()`.
-  -- This is much faster than having to call `vim.cmd('redraw')`.
-  -- Don't do that in Operator-pending mode because it doesn't work otherwise.
-  if H.is_operator_pending() then
-    H.advance_jump(opts)
-  else
-    vim.defer_fn(function() H.advance_jump(opts) end, 0)
-  end
+  H.advance_jump(opts)
 end
 
 --- Stop jumping
@@ -442,15 +418,22 @@ end
 ---   (inclusive end of match), or 'none' (match for spot is done manually
 ---   inside pattern with plain `()` matching group).
 ---
----@usage - Match any punctuation:
----   `MiniJump2d.gen_pattern_spotter('%p')`
---- - Match first from line start non-whitespace character:
----   `MiniJump2d.gen_pattern_spotter('^%s*%S', 'end')`
---- - Match start of last word:
----   `MiniJump2d.gen_pattern_spotter('[^%s%p]+[%s%p]-$', 'start')`
---- - Match letter followed by another letter (example of manual matching
----   inside pattern):
----   `MiniJump2d.gen_pattern_spotter('%a()%a', 'none')`
+---@return function Spotter function.
+---
+---@usage >lua
+---   -- Match any punctuation
+---   MiniJump2d.gen_pattern_spotter('%p')
+---
+---   -- Match first from line start non-whitespace character
+---   MiniJump2d.gen_pattern_spotter('^%s*%S', 'end')
+---
+---   -- Match start of last word
+---   MiniJump2d.gen_pattern_spotter('[^%s%p]+[%s%p]-$', 'start')
+---
+---   -- Match letter followed by another letter (example of manual matching
+---   -- inside pattern)
+---   MiniJump2d.gen_pattern_spotter('%a()%a', 'none')
+--- <
 MiniJump2d.gen_pattern_spotter = function(pattern, side)
   -- Don't use `%w` to account for multibyte characters
   pattern = pattern or '[^%s%p]+'
@@ -491,11 +474,45 @@ MiniJump2d.gen_pattern_spotter = function(pattern, side)
       spot = math.min(math.max(spot, 0), line:len())
 
       -- Unify how spot is chosen in case of multibyte characters
-      local utf_index = vim.str_utfindex(line, spot)
-      spot = vim.str_byteindex(line, utf_index)
+      -- Use `+-1` to make sure that result it at start of multibyte character
+      local utf_index = vim.str_utfindex(line, spot) - 1
+      spot = vim.str_byteindex(line, utf_index) + 1
 
       -- Add spot only if it referces new actually visible column
       if spot ~= res[#res] then table.insert(res, spot) end
+    end
+    return res
+  end
+end
+
+--- Generate union of spotters
+---
+---@param ... any Each argument should be a valid spotter.
+---   See |MiniJump2d.config| for more details.
+---
+---@return function Spotter producing union of spots.
+---
+---@usage >lua
+---   -- Match start and end of non-blank character groups:
+---   local nonblank_start = MiniJump2d.gen_pattern_spotter('%S+', 'start')
+---   local nonblank_end = MiniJump2d.gen_pattern_spotter('%S+', 'end')
+---   local spotter = MiniJump2d.gen_union_spotter(nonblank_start, nonblank_end)
+--- <
+MiniJump2d.gen_union_spotter = function(...)
+  local spotters = { ... }
+  if #spotters == 0 then return function() return {} end end
+
+  local is_all_callable = true
+  for _, x in ipairs(spotters) do
+    if not vim.is_callable(x) then is_all_callable = false end
+  end
+
+  if not is_all_callable then H.error('All `gen_union_spotter()` arguments should be callable elements.') end
+
+  return function(line_num, args)
+    local res = spotters[1](line_num, args)
+    for i = 2, #spotters do
+      res = H.merge_unique(res, spotters[i](line_num, args))
     end
     return res
   end
@@ -505,10 +522,10 @@ end
 ---
 --- Spot is possible for jump if it is one of the following:
 --- - Start or end of non-whitespace character group.
---- - Alphanumeric character followed or preceeded by punctuation (useful for
+--- - Alphanumeric character followed or preceded by punctuation (useful for
 ---   snake case names).
 --- - Start of uppercase character group (useful for camel case names). Usually
----   only Lating alphabet is recognized due to Lua patterns shortcomings.
+---   only Latin alphabet is recognized due to Lua patterns shortcomings.
 ---
 --- These rules are derived in an attempt to balance between two intentions:
 --- - Allow as much useful jumping spots as possible.
@@ -516,6 +533,8 @@ end
 ---
 --- Usually takes from 2 to 3 keystrokes to get to destination.
 MiniJump2d.default_spotter = (function()
+  -- NOTE: not using `MiniJump2d.gen_union_spotter()` due to slightly better
+  -- algorithmic complexity merging small arrays first.
   local nonblank_start = MiniJump2d.gen_pattern_spotter('%S+', 'start')
   local nonblank_end = MiniJump2d.gen_pattern_spotter('%S+', 'end')
   -- Use `[^%s%p]` as "alphanumeric" to allow working with multibyte characters
@@ -538,15 +557,18 @@ end)()
 --- `MiniJump2d.start()`. Read help description to see which options it defines
 --- (like in |MiniJump2d.builtin_opts.line_start|).
 ---
----@usage Using |MiniJump2d.builtin_opts.line_start| as example:
---- - Command:
----   `:lua MiniJump2d.start(MiniJump2d.builtin_opts.line_start)`
---- - Custom mapping: >
----   vim.api.nvim_set_keymap(
+---@usage >lua
+---   -- Using `MiniJump2d.builtin_opts.line_start` as example:
+---   -- Command
+---   :lua MiniJump2d.start(MiniJump2d.builtin_opts.line_start)
+---
+---   -- Custom mapping
+---   vim.keymap.set(
 ---     'n', '<CR>',
----     '<Cmd>lua MiniJump2d.start(MiniJump2d.builtin_opts.line_start)<CR>', {}
+---     '<Cmd>lua MiniJump2d.start(MiniJump2d.builtin_opts.line_start)<CR>'
 ---   )
---- - Inside |MiniJump2d.setup| (make sure to use all defined options): >
+---
+---   -- Inside `MiniJump2d.setup()` (make sure to use all defined options)
 ---   local jump2d = require('mini.jump2d')
 ---   local jump_line_start = jump2d.builtin_opts.line_start
 ---   jump2d.setup({
@@ -617,9 +639,9 @@ MiniJump2d.builtin_opts.query = user_input_opts(function() return H.input('Enter
 
 -- Helper data ================================================================
 -- Module default config
-H.default_config = MiniJump2d.config
+H.default_config = vim.deepcopy(MiniJump2d.config)
 
--- Namespaces to be used withing module
+-- Namespaces to be used within module
 H.ns_id = {
   dim = vim.api.nvim_create_namespace('MiniJump2dDim'),
   spots = vim.api.nvim_create_namespace('MiniJump2dSpots'),
@@ -651,7 +673,7 @@ H.setup_config = function(config)
   -- General idea: if some table elements are not present in user-supplied
   -- `config`, take them from default config
   vim.validate({ config = { config, 'table', true } })
-  config = vim.tbl_deep_extend('force', H.default_config, config or {})
+  config = vim.tbl_deep_extend('force', vim.deepcopy(H.default_config), config or {})
 
   vim.validate({
     spotter = { config.spotter, 'function', true },
@@ -690,9 +712,47 @@ H.apply_config = function(config)
 
   -- Apply mappings
   local keymap = config.mappings.start_jumping
-  H.map('n', keymap, '<Cmd>lua MiniJump2d.start()<CR>', { desc = 'Start 2d jumping' })
-  H.map('x', keymap, '<Cmd>lua MiniJump2d.start()<CR>', { desc = 'Start 2d jumping' })
+  H.map('n', keymap, MiniJump2d.start, { desc = 'Start 2d jumping' })
+  H.map('x', keymap, MiniJump2d.start, { desc = 'Start 2d jumping' })
+  -- Use `<Cmd>...<CR>` to have proper dot-repeat
+  -- See https://github.com/neovim/neovim/issues/23406
+  -- TODO: use local functions if/when that issue is resolved
   H.map('o', keymap, '<Cmd>lua MiniJump2d.start()<CR>', { desc = 'Start 2d jumping' })
+end
+
+H.create_autocommands = function(config)
+  local augroup = vim.api.nvim_create_augroup('MiniJump2d', {})
+
+  local au = function(event, pattern, callback, desc)
+    vim.api.nvim_create_autocmd(event, { pattern = pattern, group = augroup, callback = callback, desc = desc })
+  end
+
+  -- Corrections for default `<CR>` mapping to not interfere with popular usages
+  if config.mappings.start_jumping == '<CR>' then
+    local revert_cr = function() vim.keymap.set('n', '<CR>', '<CR>', { buffer = true }) end
+    au('FileType', 'qf', revert_cr, 'Revert <CR>')
+    au('CmdwinEnter', '*', revert_cr, 'Revert <CR>')
+  end
+
+  -- Ensure proper colors
+  au('ColorScheme', '*', H.create_default_hl, 'Ensure proper colors')
+end
+
+--stylua: ignore
+H.create_default_hl = function()
+  local set_default_hl = function(name, data)
+    data.default = true
+    vim.api.nvim_set_hl(0, name, data)
+  end
+
+  local is_light_bg = vim.o.background == 'light'
+  local bg_color = is_light_bg and 'white' or 'black'
+  local fg_color = is_light_bg and 'black' or 'white'
+
+  set_default_hl('MiniJump2dSpot',       { fg = fg_color, bg = bg_color, bold = true, nocombine = true })
+  set_default_hl('MiniJump2dSpotAhead',  { fg = 'grey',   bg = bg_color, nocombine = true })
+  set_default_hl('MiniJump2dSpotUnique', { link = 'MiniJump2dSpot' })
+  set_default_hl('MiniJump2dDim',        { link = 'Comment' })
 end
 
 H.is_disabled = function() return vim.g.minijump2d_disable == true or vim.b.minijump2d_disable == true end
@@ -813,9 +873,8 @@ H.spots_show = function(spots, opts)
     end
   end
 
-  -- Need to redraw in Operator-pending mode, because otherwise extmarks won't
-  -- be shown and deferring disables this mode.
-  if H.is_operator_pending() then vim.cmd('redraw') end
+  -- Redraw to force showing marks
+  vim.cmd('redraw')
 end
 
 H.spots_unshow = function(spots)
@@ -941,15 +1000,7 @@ H.advance_jump = function(opts)
       H.spots_show(spots, opts)
       H.cache.spots = spots
 
-      -- Defer advancing jump to allow drawing before invoking `getcharstr()`.
-      -- This is much faster than having to call `vim.cmd('redraw')`. Don't do that
-      -- in Operator-pending mode because it doesn't work otherwise.
-      if H.is_operator_pending() then
-        H.advance_jump(opts)
-      else
-        vim.defer_fn(function() H.advance_jump(opts) end, 0)
-        return
-      end
+      H.advance_jump(opts)
     end
   end
 
@@ -972,6 +1023,8 @@ H.perform_jump = function(spot, after_hook)
 end
 
 -- Utilities ------------------------------------------------------------------
+H.error = function(msg) error(string.format('(mini.jump2d) %s', msg), 0) end
+
 H.echo = function(msg, is_important)
   if H.get_config().silent then return end
 
@@ -1000,8 +1053,9 @@ end
 
 H.message = function(msg) H.echo(msg, true) end
 
-H.is_operator_pending =
-  function() return vim.tbl_contains({ 'no', 'noV', H.keys.block_operator_pending }, vim.fn.mode(1)) end
+H.is_operator_pending = function()
+  return vim.tbl_contains({ 'no', 'noV', H.keys.block_operator_pending }, vim.fn.mode(1))
+end
 
 H.getcharstr = function(msg)
   local needs_help_msg = true
@@ -1074,19 +1128,15 @@ H.tabpage_list_wins = function(tabpage_id)
   return wins
 end
 
-H.map = function(mode, key, rhs, opts)
-  if key == '' then return end
-
-  opts = vim.tbl_deep_extend('force', { noremap = true, silent = true }, opts or {})
-
-  -- Use mapping description only in Neovim>=0.7
-  if vim.fn.has('nvim-0.7') == 0 then opts.desc = nil end
-
-  vim.api.nvim_set_keymap(mode, key, rhs, opts)
+H.map = function(mode, lhs, rhs, opts)
+  if lhs == '' then return end
+  opts = vim.tbl_deep_extend('force', { silent = true }, opts or {})
+  vim.keymap.set(mode, lhs, rhs, opts)
 end
 
 H.merge_unique = function(tbl_1, tbl_2)
-  if not (type(tbl_1) == 'table' and type(tbl_2) == 'table') then return end
+  if type(tbl_1) == 'table' and type(tbl_2) ~= 'table' then return tbl_1 end
+  if type(tbl_1) ~= 'table' and type(tbl_2) == 'table' then return tbl_2 end
 
   local n_1, n_2 = #tbl_1, #tbl_2
   local res, i, j = {}, 1, 1

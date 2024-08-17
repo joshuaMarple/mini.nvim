@@ -61,7 +61,7 @@ as `MiniMove.config`. See |mini.nvim-buffer-local-config| for more details.
     - Has extra functionality beyond moving text, like duplication.
       While 'mini.move' concentrates only on moving functionality.
 
-# Disabling~
+# Disabling ~
 
 To disable, set `vim.g.minimove_disable` (globally) or `vim.b.minimove_disable`
 (for a buffer) to `true`. Considering high number of different scenarios
@@ -74,19 +74,22 @@ recipes.
                            `MiniMove.setup`({config})
 Module setup
 
-Parameters~
+Parameters ~
 {config} `(table|nil)` Module config table. See |MiniMove.config|.
 
-Usage~
-`require('mini.move').setup({})` (replace `{}` with your `config` table)
-
+Usage ~
+>lua
+  require('mini.move').setup() -- use default config
+  -- OR
+  require('mini.move').setup({}) -- replace {} with your config table
+<
 ------------------------------------------------------------------------------
                                                                *MiniMove.config*
                                `MiniMove.config`
 Module config
 
 Default values:
->
+>lua
   MiniMove.config = {
     -- Module mappings. Use `''` (empty string) to disable one.
     mappings = {
@@ -112,9 +115,9 @@ Default values:
 <
 # Mappings ~
 
-Other possible choices of mappings:
+Other possible choices of mappings: >lua
 
-- `HJKL` for moving visual selection (overrides |H|, |L|, |v_J| in Visual mode): >
+  -- `HJKL` for moving visual selection (overrides H, L, J in Visual mode)
   require('mini.move').setup({
     mappings = {
       left  = 'H',
@@ -124,7 +127,7 @@ Other possible choices of mappings:
     }
   })
 
-- Shift + arrows: >
+  -- Shift + arrows
   require('mini.move').setup({
     mappings = {
       left  = '<S-left>',
@@ -138,7 +141,7 @@ Other possible choices of mappings:
       line_up    = '<S-up>',
     }
   })
-
+<
 ------------------------------------------------------------------------------
                                                      *MiniMove.move_selection()*
                  `MiniMove.move_selection`({direction}, {opts})
@@ -150,7 +153,7 @@ Notes:
 - Vertical movement in linewise mode is followed up by reindent with |v_=|.
 - Horizontal movement in linewise mode is same as |v_<| and |v_>|.
 
-Parameters~
+Parameters ~
 {direction} `(string)` One of "left", "down", "up", "right".
 {opts} `(table|nil)` Options. Same structure as `options` in |MiniMove.config|
   (with its values as defaults) plus these allowed extra fields:
@@ -170,7 +173,7 @@ Notes:
   handling of |v:count| (multiplies shift effect instead of modifying that
   number of lines).
 
-Parameters~
+Parameters ~
 {direction} `(string)` One of "left", "down", "up", "right".
 {opts} `(table|nil)` Options. Same structure as `options` in |MiniMove.config|
   (with its values as defaults) plus these allowed extra fields:

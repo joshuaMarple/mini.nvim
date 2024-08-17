@@ -15,7 +15,7 @@
 ---
 --- - Generator of |telescope.nvim| sorter: |MiniFuzzy.get_telescope_sorter()|.
 ---
---- # Setup~
+--- # Setup ~
 ---
 --- This module doesn't need setup, but it can be done to improve usability.
 --- Setup with `require('mini.fuzzy').setup({})` (replace `{}` with your
@@ -29,14 +29,14 @@
 --- `MiniFuzzy.config`.
 --- See |mini.nvim-buffer-local-config| for more details.
 ---
---- # Notes~
+--- # Notes ~
 ---
 --- 1. Currently there is no explicit design to work with multibyte symbols,
 ---    but simple examples should work.
 --- 2. Smart case is used: case insensitive if input word (which is usually a
 ---     user input) is all lower case. Case sensitive otherwise.
 
---- # Algorithm design~
+--- # Algorithm design ~
 ---
 --- General design uses only width of found match and index of first letter
 --- match. No special characters or positions (like in fzy and fzf) are used.
@@ -72,17 +72,12 @@ local H = {}
 ---
 ---@param config table|nil Module config table. See |MiniFuzzy.config|.
 ---
----@usage `require('mini.fuzzy').setup({})` (replace `{}` with your `config` table)
+---@usage >lua
+---   require('mini.fuzzy').setup() -- use default config
+---   -- OR
+---   require('mini.fuzzy').setup({}) -- replace {} with your config table
+--- <
 MiniFuzzy.setup = function(config)
-  -- TODO: Remove after Neovim<=0.6 support is dropped
-  if vim.fn.has('nvim-0.7') == 0 then
-    vim.notify(
-      '(mini.fuzzy) Neovim<0.7 is soft deprecated (module works but not supported).'
-        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
-        .. ' Please update your Neovim version.'
-    )
-  end
-
   -- Export module
   _G.MiniFuzzy = MiniFuzzy
 
@@ -177,12 +172,13 @@ end
 ---
 ---@param opts table|nil Options (currently not used).
 ---
----@usage >
+---@usage >lua
 ---   require('telescope').setup({
 ---     defaults = {
 ---       generic_sorter = require('mini.fuzzy').get_telescope_sorter
 ---     }
 ---   })
+--- <
 MiniFuzzy.get_telescope_sorter = function(opts)
   opts = opts or {}
 
@@ -220,7 +216,7 @@ end
 
 -- Helper data ================================================================
 -- Module default config
-H.default_config = MiniFuzzy.config
+H.default_config = vim.deepcopy(MiniFuzzy.config)
 
 -- Helper functionality =======================================================
 -- Settings -------------------------------------------------------------------
@@ -228,7 +224,7 @@ H.setup_config = function(config)
   -- General idea: if some table elements are not present in user-supplied
   -- `config`, take them from default config
   vim.validate({ config = { config, 'table', true } })
-  config = vim.tbl_deep_extend('force', H.default_config, config or {})
+  config = vim.tbl_deep_extend('force', vim.deepcopy(H.default_config), config or {})
 
   vim.validate({
     cutoff = {
@@ -245,8 +241,9 @@ H.apply_config = function(config) MiniFuzzy.config = config end
 
 H.is_disabled = function() return vim.g.minifuzzy_disable == true or vim.b.minifuzzy_disable == true end
 
-H.get_config =
-  function(config) return vim.tbl_deep_extend('force', MiniFuzzy.config, vim.b.minifuzzy_config or {}, config or {}) end
+H.get_config = function(config)
+  return vim.tbl_deep_extend('force', MiniFuzzy.config, vim.b.minifuzzy_config or {}, config or {})
+end
 
 -- Fuzzy matching -------------------------------------------------------------
 ---@param letters table Array of letters from input word

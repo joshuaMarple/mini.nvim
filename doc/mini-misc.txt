@@ -14,6 +14,9 @@ Features the following functions:
 
 - |MiniMisc.setup_auto_root()| to set up automated change of current directory.
 
+- |MiniMisc.setup_termbg_sync()| to set up terminal background synchronization
+  (removes possible "frame" around current Neovim instance).
+
 - |MiniMisc.setup_restore_cursor()| to set up automated restoration of
   cursor position on file reopen.
 
@@ -28,7 +31,7 @@ Features the following functions:
 
 - And more.
 
-# Setup~
+# Setup ~
 
 This module doesn't need setup, but it can be done to improve usability.
 Setup with `require('mini.misc').setup({})` (replace `{}` with your
@@ -45,37 +48,39 @@ will have no effect here.
                            `MiniMisc.setup`({config})
 Module setup
 
-Parameters~
+Parameters ~
 {config} `(table|nil)` Module config table. See |MiniMisc.config|.
 
-Usage~
-`require('mini.misc').setup({})` (replace `{}` with your `config` table)
-
+Usage ~
+>lua
+  require('mini.misc').setup() -- use default config
+  -- OR
+  require('mini.misc').setup({}) -- replace {} with your config table
+<
 ------------------------------------------------------------------------------
                                                                *MiniMisc.config*
                                `MiniMisc.config`
 Module config
 
 Default values:
->
+>lua
   MiniMisc.config = {
     -- Array of fields to make global (to be used as independent variables)
     make_global = { 'put', 'put_text' },
   }
 <
-
 ------------------------------------------------------------------------------
                                                          *MiniMisc.bench_time()*
                      `MiniMisc.bench_time`({f}, {n}, {...})
 Execute `f` several times and time how long it took
 
-Parameters~
+Parameters ~
 {f} `(function)` Function which execution to benchmark.
 {n} `(number|nil)` Number of times to execute `f(...)`. Default: 1.
 {...} `(any)` Arguments when calling `f`.
 
-Return~
-`(...)` Table with durations (in seconds; up to microseconds) and
+Return ~
+`(...)` Table with durations (in seconds; up to nanoseconds) and
   output of (last) function execution.
 
 ------------------------------------------------------------------------------
@@ -83,7 +88,7 @@ Return~
                      `MiniMisc.get_gutter_width`({win_id})
 Compute width of gutter (info column on the left of the window)
 
-Parameters~
+Parameters ~
 {win_id} `(number|nil)` Window identifier (see |win_getid()|) for which gutter
   width is computed. Default: 0 for current.
 
@@ -92,7 +97,7 @@ Parameters~
                              `MiniMisc.put`({...})
 Print Lua objects in command line
 
-Parameters~
+Parameters ~
 {...} `(any)` Any number of objects to be printed each on separate line.
 
 ------------------------------------------------------------------------------
@@ -100,7 +105,7 @@ Parameters~
                            `MiniMisc.put_text`({...})
 Print Lua objects in current buffer
 
-Parameters~
+Parameters ~
 {...} `(any)` Any number of objects to be printed each on separate line.
 
 ------------------------------------------------------------------------------
@@ -108,7 +113,7 @@ Parameters~
                 `MiniMisc.resize_window`({win_id}, {text_width})
 Resize window to have exact number of editable columns
 
-Parameters~
+Parameters ~
 {win_id} `(number|nil)` Window identifier (see |win_getid()|) to be resized.
   Default: 0 for current.
 {text_width} `(number|nil)` Number of editable columns resized window will
@@ -117,7 +122,7 @@ Parameters~
 
 ------------------------------------------------------------------------------
                                                     *MiniMisc.setup_auto_root()*
-                      `MiniMisc.setup_auto_root`({names})
+                `MiniMisc.setup_auto_root`({names}, {fallback})
 Set up automated change of current directory
 
 What it does:
@@ -126,21 +131,18 @@ What it does:
   to it (using |chdir()|).
 - Resets |autochdir| to `false`.
 
-Note: requires |vim.fs| module (present in Neovim>=0.8).
+Parameters ~
+{names} `(table|function|nil)` Forwarded to |MiniMisc.find_root()|.
+{fallback} `(function|nil)` Forwarded to |MiniMisc.find_root()|.
 
-Parameters~
-{names} `(table|function|nil)` Array of file names or a callable used to
-  identify a root directory. Forwarded to |MiniMisc.find_root()|.
-  Default: `{ '.git', 'Makefile' }`.
-
-Usage~
->
+Usage ~
+>lua
   require('mini.misc').setup()
   MiniMisc.setup_auto_root()
-
+<
 ------------------------------------------------------------------------------
                                                           *MiniMisc.find_root()*
-                    `MiniMisc.find_root`({buf_id}, {names})
+              `MiniMisc.find_root`({buf_id}, {names}, {fallback})
 Find root directory
 
 Based on a buffer name (full path to file opened in a buffer) find a root
@@ -148,20 +150,41 @@ directory. If buffer is not associated with file, returns `nil`.
 
 Root directory is a directory containing at least one of pre-defined files.
 It is searched using |vim.fn.find()| with `upward = true` starting from
-directory of current buffer file until first occurence of root file(s).
+directory of current buffer file until first occurrence of root file(s).
 
 Notes:
-- Requires |vim.fs| module (present in Neovim>=0.8).
 - Uses directory path caching to speed up computations. This means that no
   changes in root directory will be detected after directory path was already
   used in this function. Reload Neovim to account for that.
 
-Parameters~
+Parameters ~
 {buf_id} `(number|nil)` Buffer identifier (see |bufnr()|) to use.
   Default: 0 for current.
 {names} `(table|function|nil)` Array of file names or a callable used to
   identify a root directory. Forwarded to |vim.fs.find()|.
   Default: `{ '.git', 'Makefile' }`.
+{fallback} `(function|nil)` Callable fallback to use if no root is found
+  with |vim.fs.find()|. Will be called with a buffer path and should return
+  a valid directory path.
+
+------------------------------------------------------------------------------
+                                                  *MiniMisc.setup_termbg_sync()*
+                         `MiniMisc.setup_termbg_sync`()
+Set up terminal background synchronization
+
+What it does:
+- Checks if terminal emulator supports OSC 11 control sequence. Stops if not.
+- Creates |UIEnter| and |ColorScheme| autocommands which change terminal
+  background to have same color as |guibg| of |hl-Normal|.
+- Creates |UILeave| autocommand which sets terminal background back to the
+  color at the time this function was called first time in current session.
+- Synchronizes background immediately to allow not depend on loading order.
+
+Primary use case is to remove possible "frame" around current Neovim instance
+which appears if Neovim's |hl-Normal| background color differs from what is
+used by terminal emulator itself.
+
+Make sure to call it only during interactive session in terminal emulator.
 
 ------------------------------------------------------------------------------
                                                *MiniMisc.setup_restore_cursor()*
@@ -176,17 +199,17 @@ a normal buffer (see 'buftype').
 Note: it relies on file mark data stored in 'shadafile' (see |shada-f|).
 Be sure to enable it.
 
-Parameters~
+Parameters ~
 {opts} `(table|nil)` Options for |MiniMisc.restore_cursor|. Possible fields:
   - <center> - (boolean) Center the window after we restored the cursor.
     Default: `true`.
   - <ignore_filetype> - Array with file types to be ignored (see 'filetype').
     Default: `{ "gitcommit", "gitrebase" }`.
 
-Usage~
->
+Usage ~
+>lua
   require('mini.misc').setup_restore_cursor()
-
+<
 ------------------------------------------------------------------------------
                                                        *MiniMisc.stat_summary()*
                           `MiniMisc.stat_summary`({t})
@@ -195,10 +218,10 @@ Compute summary statistics of numerical array
 This might be useful to compute summary of time benchmarking with
 |MiniMisc.bench_time|.
 
-Parameters~
+Parameters ~
 {t} `(table)` Array (table suitable for `ipairs`) of numbers.
 
-Return~
+Return ~
 `(table)` Table with summary values under following keys (may be
   extended in the future): <maximum>, <mean>, <median>, <minimum>, <n>
   (number of elements), <sd> (sample standard deviation).
@@ -210,11 +233,11 @@ Return "first" elements of table as decided by `pairs`
 
 Note: order of elements might vary.
 
-Parameters~
+Parameters ~
 {t} `(table)` Input table.
 {n} `(number|nil)` Maximum number of first elements. Default: 5.
 
-Return~
+Return ~
 `(table)` Table with at most `n` first elements of `t` (with same keys).
 
 ------------------------------------------------------------------------------
@@ -228,11 +251,11 @@ This function makes two passes through elements of `t`:
 
 Note: order of elements might vary.
 
-Parameters~
+Parameters ~
 {t} `(table)` Input table.
 {n} `(number|nil)` Maximum number of last elements. Default: 5.
 
-Return~
+Return ~
 `(table)` Table with at most `n` last elements of `t` (with same keys).
 
 ------------------------------------------------------------------------------
@@ -251,14 +274,16 @@ nested comments. For example, have in Lua "first-level" comments with '--'
 and "second-level" comments with '----'. With nested comment leader second
 type can be formatted with `gq` in the same way as first one.
 
-Recommended usage is with |autocmd|:
-`autocmd BufEnter * lua pcall(require('mini.misc').use_nested_comments)`
+Recommended usage is with |autocmd|: >lua
 
+  local use_nested_comments = function() MiniMisc.use_nested_comments() end
+  vim.api.nvim_create_autocmd('BufEnter', { callback = use_nested_comments })
+<
 Note: for most filetypes 'commentstring' option is added only when buffer
 with this filetype is entered, so using non-current `buf_id` can not lead
 to desired effect.
 
-Parameters~
+Parameters ~
 {buf_id} `(number|nil)` Buffer identifier (see |bufnr()|) in which function
   will operate. Default: 0 for current.
 
@@ -271,7 +296,7 @@ This function is useful when working with multiple windows but temporarily
 needing to zoom into one to see more of the code from that buffer. Call it
 again (without arguments) to zoom out.
 
-Parameters~
+Parameters ~
 {buf_id} `(number|nil)` Buffer identifier (see |bufnr()|) to be zoomed.
   Default: 0 for current.
 {config} `(table|nil)` Optional config for window (as for |nvim_open_win()|).

@@ -16,6 +16,9 @@ local set_lines = function(...) return child.set_lines(...) end
 local get_lines = function(...) return child.get_lines(...) end
 --stylua: ignore end
 
+-- TODO: Remove after compatibility with Neovim=0.9 is dropped
+local islist = vim.fn.has('nvim-0.10') == 1 and vim.islist or vim.tbl_islist
+
 local get_latest_message = function() return child.cmd_capture('1messages') end
 
 local get_ref_path = function(name) return string.format('tests/dir-test/%s', name) end
@@ -32,6 +35,7 @@ local get_current_all_cases = function()
   -- Decode functions in current process
   res = vim.tbl_map(function(case)
     case.hooks = { pre = vim.tbl_map(loadstring, case.hooks.pre), post = vim.tbl_map(loadstring, case.hooks.post) }
+    ---@diagnostic disable-next-line:param-type-mismatch
     case.test = loadstring(case.test)
     return case
   end, res)
@@ -67,11 +71,16 @@ local expect_all_state = function(cases, state)
   eq(res, true)
 end
 
+-- Time constants
+local terminal_wait = helpers.get_time_const(500)
+
 -- Output test set
-T = new_set({
+local T = new_set({
   hooks = {
     pre_case = function()
       child.setup()
+      -- Mock UI so that default reporter is as if used interactively
+      child.lua('vim.api.nvim_list_uis = function() return { 1 } end')
       load_module()
     end,
     post_once = child.stop,
@@ -86,6 +95,8 @@ T['setup()']['creates side effects'] = function()
   eq(child.lua_get('type(_G.MiniTest)'), 'table')
 
   -- Highlight groups
+  child.cmd('hi clear')
+  load_module()
   expect.match(child.cmd_capture('hi MiniTestFail'), 'gui=bold')
   expect.match(child.cmd_capture('hi MiniTestPass'), 'gui=bold')
   expect.match(child.cmd_capture('hi MiniTestEmphasis'), 'gui=bold')
@@ -186,10 +197,6 @@ T['run()']['respects `opts` argument'] = function()
   eq(#get_current_all_cases(), 0)
 
   -- Should also use buffer local config
-  if vim.fn.has('nvim-0.7') == 0 then
-    MiniTest.skip('Function values inside buffer variables are not supported in Neovim<0.7.')
-  end
-
   local general_file = get_ref_path('testref_general.lua')
   local command = string.format(
     [[vim.b.minitest_config = { collect = { find_files = function() return { '%s' } end } }]],
@@ -273,39 +280,32 @@ end
 
 T['run()']['handles `hooks`'] = function()
   local res = testrun_ref_file('testref_run-hooks.lua')
-  local order_cases = vim.tbl_map(function(c)
-    return {
-      desc = vim.list_slice(c.desc, 2),
-      fails = vim.tbl_map(function(x) return x:gsub('\n  Traceback.*$', '') end, c.exec.fails),
-      n_hooks = { pre = #c.hooks.pre, post = #c.hooks.post },
-    }
-  end, filter_by_desc(res, 2, 'order'))
+  --stylua: ignore
+  eq(child.lua_get('_G.log'), {
+    -- Test order
+    "pre_once_1",
+    "pre_case_1", "First level test", "post_case_1",
+    "pre_once_2",
+    "pre_case_1", "pre_case_2", "Nested #1", "post_case_2", "post_case_1",
+    "pre_case_1", "pre_case_2", "Nested #2", "post_case_2", "post_case_1",
+    "post_once_2",
+    "post_once_1",
 
-  eq(order_cases[1], {
-    desc = { 'order', 'first level' },
-    fails = { 'pre_once_1', 'pre_case_1', 'First level test', 'post_case_1' },
-    n_hooks = { pre = 2, post = 1 },
-  })
-  eq(order_cases[2], {
-    desc = { 'order', 'nested', 'first' },
-    fails = { 'pre_once_2', 'pre_case_1', 'pre_case_2', 'Nested #1', 'post_case_2', 'post_case_1' },
-    n_hooks = { pre = 3, post = 2 },
-  })
-  eq(order_cases[3], {
-    desc = { 'order', 'nested', 'second' },
-    fails = { 'pre_case_1', 'pre_case_2', 'Nested #2', 'post_case_2', 'post_case_1', 'post_once_2', 'post_once_1' },
-    n_hooks = { pre = 2, post = 4 },
-  })
-end
+    -- Test skip case on hook error. All hooks should still be called.
+    "pre_case_3", "post_case_3", "post_once_3",
+    "pre_once_4", "post_case_4", "post_once_4",
 
-T['run()']['handles same function in `*_once` hooks'] = function()
-  local res = testrun_ref_file('testref_run-hooks.lua')
-  local case = filter_by_desc(res, 2, 'same `*_once` hooks')[1]
+    -- Using same function in `*_once` hooks should still lead to its multiple
+    -- execution.
+    "Same function",
+    "Same function",
+    "Same hook test",
+    "Same function",
+    "Same function",
+  })
 
-  -- The fact that it was called 4 times indicates that using same function in
-  -- `*_once` hooks leads to its correct multiple execution
-  local fails = vim.tbl_map(function(x) return x:gsub('\n  Traceback.*$', '') end, case.exec.fails)
-  eq(fails, { 'Same function', 'Same function', 'Same hook test', 'Same function', 'Same function' })
+  -- Skipping test case due to hook errors should add a note
+  expect.match(filter_by_desc(res, 2, 'skip_case_on_hook_error #1')[1].exec.notes[1], '^Skip.*error.*hooks')
 end
 
 T['run()']['appends traceback to fails'] = function()
@@ -331,6 +331,11 @@ T['run_file()']['works'] = function()
   eq(last_desc, { 'run_at_location()', 'extra case' })
 end
 
+T['run_file()']['normalizes input path'] = function()
+  child.lua('MiniTest.run_file(...)', { './' .. get_ref_path('testref_run.lua') })
+  eq(child.lua_get('MiniTest.current.all_cases[1].desc[1]'):gsub('\\', '/'), 'tests/dir-test/testref_run.lua')
+end
+
 T['run_at_location()'] = new_set()
 
 T['run_at_location()']['works with non-default input'] = new_set({ parametrize = { { 3 }, { 4 }, { 5 } } }, {
@@ -353,7 +358,9 @@ T['run_at_location()']['uses cursor position by default'] = function()
 
   local all_cases = get_current_all_cases()
   eq(#all_cases, 1)
-  eq(all_cases[1].desc, { path, 'run_at_location()' })
+  local desc = all_cases[1].desc
+  eq(desc[1]:gsub('\\', '/'), path)
+  eq(desc[2], 'run_at_location()')
 end
 
 local collect_general = function()
@@ -367,8 +374,11 @@ T['collect()'] = new_set()
 T['collect()']['works'] = function()
   child.lua('_G.cases = MiniTest.collect()')
 
+  -- TODO: Remove after compatibility with Neovim=0.9 is dropped
+  child.lua([[_G.islist = vim.fn.has('nvim-0.10') == 1 and vim.islist or vim.tbl_islist]])
+
   -- Should return array of cases
-  eq(child.lua_get('vim.tbl_islist(_G.cases)'), true)
+  eq(child.lua_get('_G.islist(_G.cases)'), true)
 
   local keys = child.lua_get('vim.tbl_keys(_G.cases[1])')
   table.sort(keys)
@@ -415,11 +425,6 @@ T['collect()']['respects `find_files` option'] = function()
   eq(child.lua_get('#_G.cases'), 2)
   eq(child.lua_get('_G.cases[1].desc[1]'), 'tests/dir-test/testref_general.lua')
 
-  -- Should also use buffer local config
-  if vim.fn.has('nvim-0.7') == 0 then
-    MiniTest.skip('Function values inside buffer variables are not supported in Neovim<0.7.')
-  end
-
   child.lua([[vim.b.minitest_config = { collect = { find_files = function() return {} end } }]])
   child.lua('_G.cases = MiniTest.collect()')
   eq(child.lua_get('#_G.cases'), 0)
@@ -437,11 +442,6 @@ T['collect()']['respects `filter_cases` option'] = function()
 
   eq(child.lua_get('#_G.cases'), 1)
   eq(child.lua_get('_G.cases[1].desc[2]'), 'case 2')
-
-  -- Should also use buffer local config
-  if vim.fn.has('nvim-0.7') == 0 then
-    MiniTest.skip('Function values inside buffer variables are not supported in Neovim<0.7.')
-  end
 
   child.lua([[vim.b.minitest_config = { collect = { filter_cases = function() return false end } }]])
   child.lua('_G.cases = MiniTest.collect()')
@@ -469,11 +469,6 @@ T['execute()']['respects `reporter` option']['partial'] = function()
 
   eq(child.lua_get('_G.was_in_start'), true)
   eq(child.lua_get('_G.was_in_finish'), true)
-
-  -- Should also use buffer local config
-  if vim.fn.has('nvim-0.7') == 0 then
-    MiniTest.skip('Function values inside buffer variables are not supported in Neovim<0.7.')
-  end
 
   child.lua('vim.b.minitest_config = { execute = { reporter = { update = function() _G.was_in_update = true end } } }')
   child.lua('MiniTest.execute(_G.cases)')
@@ -664,6 +659,7 @@ T['expect']['error()']['works'] = function()
 end
 
 T['expect']['error()']['respects `pattern` argument'] = function()
+  ---@diagnostic disable-next-line:param-type-mismatch
   expect.error(function() MiniTest.expect.error(error, 1) end, 'pattern.*expected string')
 
   -- `nil` and `''` are placeholders for 'any error'
@@ -796,33 +792,36 @@ local suffix = useful_punctuation .. linux_forbidden .. windows_forbidden .. whi
 
 -- Don't permanently create reference file because its name is very long. This
 -- might hurt Windows users which are not interested in testing this plugin.
-T['expect']['reference_screenshot()']['correctly sanitizes path ' .. suffix] = new_set({ parametrize = { { suffix } } }, {
-  test = function()
-    local expected_filename = table.concat({
-      'tests/screenshots/',
-      'tests-test_test.lua---',
-      'expect---',
-      'reference_screenshot()---',
-      'correctly-sanitizes-path-',
-      [[_-+{}()[]''----'-------------]],
-      'test-+-args-',
-      [[{-'_-+{}()[]'-'-----'-------t--0-1-31'-}]],
-    }, '')
-    finally(function()
-      MiniTest.current.case.exec.notes = {}
-      vim.fn.delete(expected_filename)
-    end)
-    eq(vim.fn.filereadable(expected_filename), 0)
-    validate_path_sanitize()
-    eq(vim.fn.filereadable(expected_filename), 1)
-  end,
-})
+T['expect']['reference_screenshot()']['correctly sanitizes path ' .. suffix] = new_set(
+  { parametrize = { { suffix } } },
+  {
+    test = function()
+      local expected_filename = table.concat({
+        'tests/screenshots/',
+        'tests-test_test.lua---',
+        'expect---',
+        'reference_screenshot()---',
+        'correctly-sanitizes-path-',
+        [[_-+{}()[]''----'-------------]],
+        'test-+-args-',
+        [[{-'_-+{}()[]'-'-----'-------t--0-1-31'-}]],
+      }, '')
+      finally(function()
+        MiniTest.current.case.exec.notes = {}
+        vim.fn.delete(expected_filename)
+      end)
+      eq(vim.fn.filereadable(expected_filename), 0)
+      validate_path_sanitize()
+      eq(vim.fn.filereadable(expected_filename), 1)
+    end,
+  }
+)
 
 -- Paths should not end with whitespace or dot
 T['expect']['reference_screenshot()']['correctly sanitizes path for Windows '] = validate_path_sanitize
 T['expect']['reference_screenshot()']['correctly sanitizes path for Windows #2.'] = validate_path_sanitize
 
-T['expect']['reference_screenshot()']['creates refernce if it does not exist'] = function()
+T['expect']['reference_screenshot()']['creates reference if it does not exist'] = function()
   local path = get_ref_path('nonexistent-reference-screenshot')
   child.fn.delete(path)
   finally(function()
@@ -841,7 +840,7 @@ T['expect']['reference_screenshot()']['creates refernce if it does not exist'] =
   eq(MiniTest.current.case.exec.notes, {})
 end
 
-T['expect']['reference_screenshot()']['respects `opts` argument'] = function()
+T['expect']['reference_screenshot()']['respects `opts.force` argument'] = function()
   local path = get_ref_path('force-reference-screenshot')
   local notes = { 'Created reference screenshot at path ' .. vim.inspect(path) }
 
@@ -859,6 +858,27 @@ T['expect']['reference_screenshot()']['respects `opts` argument'] = function()
   set_lines({ 'This should be forced' })
   eq(MiniTest.expect.reference_screenshot(child.get_screenshot(), path, { force = true }), true)
   eq(MiniTest.current.case.exec.notes, notes)
+end
+
+T['expect']['reference_screenshot()']['respects `opts.ignore_lines`'] = function()
+  local path = get_ref_path('reference-screenshot')
+  child.set_size(5, 12)
+  local validate = function(ignore_lines, ref)
+    eq(MiniTest.expect.reference_screenshot(child.get_screenshot(), path, { ignore_lines = ignore_lines }), ref)
+  end
+
+  set_lines({ 'aaa' })
+  validate(nil, true)
+
+  set_lines({ 'aaa', 'bbb' })
+  validate({ 2 }, true)
+  validate({ 1, 2, 3 }, true)
+
+  set_lines({ 'ccc', 'bbb' })
+  expect.error(
+    function() MiniTest.expect.reference_screenshot(child.get_screenshot(), path, { ignore_lines = { 2 } }) end,
+    'screenshot equality to reference at ' .. vim.pesc(vim.inspect(path)) .. '.*Reference:.*Observed:'
+  )
 end
 
 T['expect']['reference_screenshot()']['works with multibyte characters'] = function()
@@ -1008,17 +1028,11 @@ T['child']['redirected method tables'] = new_set({
 })
 
 T['child']['redirected method tables']['method'] = function(tbl_name, field_name, args)
-  -- Test only on Neovim>=0.7 (not everything is present in earlier versions)
-  if child.fn.has('nvim-0.7.0') == 0 then return end
-
   local method = function() return child[tbl_name][field_name](unpack(args)) end
   validate_child_method(method, { name = tbl_name .. '.' .. field_name })
 end
 
 T['child']['redirected method tables']['field'] = function(tbl_name, field_name, _)
-  -- Test only on Neovim>=0.7 (not everything is present in earlier versions)
-  if child.fn.has('nvim-0.7.0') == 0 then return end
-
   -- Although being tables, they should be overridable to allow test doubles
   validate_child_field(tbl_name, field_name, true)
 end
@@ -1046,8 +1060,9 @@ T['child']['scoped options']['method'] = function(tbl_name, field_name, _)
   validate_child_method(method, { name = tbl_name })
 end
 
-T['child']['scoped options']['field'] =
-  function(tbl_name, field_name, value) validate_child_field(tbl_name, field_name, value) end
+T['child']['scoped options']['field'] = function(tbl_name, field_name, value)
+  validate_child_field(tbl_name, field_name, value)
+end
 
 T['child']['type_keys()'] = new_set()
 
@@ -1068,15 +1083,17 @@ T['child']['type_keys()']['validates input'] = function()
   expect.error(child.type_keys, pattern, 'a', { 'a', 1 })
 end
 
-T['child']['type_keys()']['throws error explicitly'] =
-  function() expect.error(child.type_keys, 'E492: Not an editor command: aaa', ':aaa<CR>') end
+T['child']['type_keys()']['throws error explicitly'] = function()
+  expect.error(child.type_keys, 'E492: Not an editor command: aaa', ':aaa<CR>')
+end
 
 T['child']['type_keys()']['respects `wait` argument'] = function()
+  local delay = helpers.get_time_const(100)
   local start_time = vim.loop.hrtime()
-  child.type_keys(100, 'i', 'Hello', { 'w', 'o' }, 'rld')
+  child.type_keys(delay, 'i', 'Hello', { 'w', 'o' }, 'rld')
   local end_time = vim.loop.hrtime()
   local duration = (end_time - start_time) * 0.000001
-  eq(0.9 * 500 <= duration and duration <= 1.1 * 500, true)
+  eq(0.9 * 5 * delay <= duration and duration <= 1.1 * 5 * delay, true)
 end
 
 T['child']['cmd()'] = function()
@@ -1124,6 +1141,33 @@ T['child']['lua_get()'] = function()
   validate_child_method(method, { name = 'lua_get' })
 end
 
+T['child']['lua_func()'] = function()
+  -- Works
+  local method = function()
+    return child.lua_func(function() return 1 + 1 end)
+  end
+  eq(method(), 2)
+
+  -- Actually executes function in child neovim
+  child.lua('_G.var = 1')
+  child.lua_func(function() _G.var = 10 end)
+  eq(child.lua_get('_G.var'), 10)
+
+  -- Can take arguments
+  eq(child.lua_func(function(a, b) return a + b end, 1, 2), 3)
+
+  -- Has no side effects
+  child.lua_func(function() end)
+  eq(child.lua_get('f'), vim.NIL)
+
+  -- Can error
+  expect.error(function()
+    return child.lua_func(function() error('test error') end)
+  end, 'test error')
+
+  validate_child_method(method, { name = 'lua_func' })
+end
+
 T['child']['is_blocked()'] = function()
   eq(child.is_blocked(), false)
 
@@ -1151,13 +1195,15 @@ T['child']['ensure_normal_mode()']['works'] = new_set({ parametrize = { { 'i' },
   end,
 })
 
-T['child']['ensure_normal_mode()']['ensures running'] =
-  function() validate_child_method(child.ensure_normal_mode, { prevent_hanging = false }) end
+T['child']['ensure_normal_mode()']['ensures running'] = function()
+  validate_child_method(child.ensure_normal_mode, { prevent_hanging = false })
+end
 
 T['child']['get_screenshot()'] = new_set()
 
-T['child']['get_screenshot()']['ensures running'] =
-  function() validate_child_method(child.get_screenshot, { name = 'get_screenshot' }) end
+T['child']['get_screenshot()']['ensures running'] = function()
+  validate_child_method(child.get_screenshot, { name = 'get_screenshot' })
+end
 
 T['child']['get_screenshot()']['works'] = function()
   set_lines({ 'aaa' })
@@ -1165,8 +1211,8 @@ T['child']['get_screenshot()']['works'] = function()
 
   -- Structure
   eq(type(screenshot), 'table')
-  eq(vim.tbl_islist(screenshot.text), true)
-  eq(vim.tbl_islist(screenshot.attr), true)
+  eq(islist(screenshot.text), true)
+  eq(islist(screenshot.attr), true)
 
   local n_lines, n_cols = child.o.lines, child.o.columns
 
@@ -1174,8 +1220,8 @@ T['child']['get_screenshot()']['works'] = function()
   eq(#screenshot.attr, n_lines)
 
   for i = 1, n_lines do
-    eq(vim.tbl_islist(screenshot.text[i]), true)
-    eq(vim.tbl_islist(screenshot.attr[i]), true)
+    eq(islist(screenshot.text[i]), true)
+    eq(islist(screenshot.attr[i]), true)
 
     eq(#screenshot.text[i], n_cols)
     eq(#screenshot.attr[i], n_cols)
@@ -1191,6 +1237,18 @@ T['child']['get_screenshot()']['works'] = function()
   expect.no_equality(screenshot.attr[1][1], screenshot.attr[2][1])
 end
 
+T['child']['get_screenshot()']['respects `opts.redraw`'] = function()
+  -- This blocks redraw until explicitly called
+  child.lua_notify('vim.fn.getchar()')
+  set_lines({ 'Should be visible only after redraw' })
+
+  local screenshot = child.get_screenshot({ redraw = false })
+  expect.match(table.concat(screenshot.text[1]), '^   ')
+  -- - Should be `redraw = true` by default
+  screenshot = child.get_screenshot()
+  expect.match(table.concat(screenshot.text[1]), '^Should be visible')
+end
+
 T['child']['get_screenshot()']['`tostring()`'] = new_set()
 
 T['child']['get_screenshot()']['`tostring()`']['works'] = function()
@@ -1199,7 +1257,7 @@ T['child']['get_screenshot()']['`tostring()`']['works'] = function()
   local lines = vim.split(tostring(screenshot), '\n')
   local n_lines, n_cols = child.o.lines, child.o.columns
 
-  -- "Ruler" + "Lines" + "Emptry line" + "Ruler" + "Lines"
+  -- "Ruler" + "Lines" + "Empty line" + "Ruler" + "Lines"
   eq(#lines, 2 * n_lines + 3)
   eq(lines[n_lines + 2], '')
 
@@ -1251,24 +1309,7 @@ T['child']['get_screenshot()']['`tostring()`']['makes proper line numbers'] = fu
   validate({ 1, '001' }, { 10, '010' }, { 100, '100' })
 end
 
-T['child']['get_screenshot()']['adds a note with floating windows in Neovim<=0.7'] = function()
-  if child.fn.has('nvim-0.8') == 1 then return end
-
-  local buf_id = child.api.nvim_create_buf(true, true)
-  child.api.nvim_buf_set_lines(buf_id, 0, -1, true, { 'aaa' })
-  child.api.nvim_open_win(buf_id, false, { relative = 'editor', width = 3, height = 1, row = 0, col = 0 })
-
-  expect.no_error(child.get_screenshot)
-  eq(
-    MiniTest.current.case.exec.notes,
-    { '`child.get_screenshot()` will not show visible floating windows in this version. Use Neovim>=0.8.' }
-  )
-  MiniTest.current.case.exec.notes = {}
-end
-
-T['child']['get_screenshot()']['works with floating windows in Neovim>=0.8'] = function()
-  if child.fn.has('nvim-0.8') == 0 then return end
-
+T['child']['get_screenshot()']['works with floating windows'] = function()
   -- This setup should result into displayed text 'bb a': 'bb ' from floating
   -- window, 'aa' - from underneath text
   set_lines({ 'aaaa' })
@@ -1290,8 +1331,8 @@ T['gen_reporter'] = new_set()
 T['gen_reporter']['buffer'] = new_set({
   hooks = {
     pre_case = function()
-      child.cmd('set termguicolors')
-      child.set_size(60, 120)
+      child.o.termguicolors = true
+      child.set_size(70, 120)
     end,
   },
   parametrize = {
@@ -1312,6 +1353,16 @@ T['gen_reporter']['buffer'] = new_set({
 
     local execute_command = string.format([[MiniTest.run_file('%s', { execute = { reporter = _G.reporter } })]], path)
     child.lua(execute_command)
+
+    -- Unify path separator for more robust testing. Rely on search and replace
+    -- to preserve extmark highlighting.
+    if package.config:sub(1, 1) == '\\' then
+      local cur_pos = child.api.nvim_win_get_cursor(0)
+      child.cmd([[silent! %s^\S\zs\\^/^g]])
+      child.cmd('silent! nohlsearch')
+      set_cursor(unpack(cur_pos))
+    end
+
     child.expect_screenshot()
 
     -- Should be able to run several times
@@ -1323,7 +1374,7 @@ T['gen_reporter']['buffer'] = new_set({
 T['gen_reporter']['stdout'] = new_set({
   hooks = {
     pre_case = function()
-      child.cmd('set termguicolors')
+      child.o.termguicolors = true
       child.set_size(35, 120)
       child.o.laststatus = 0
     end,
@@ -1331,12 +1382,15 @@ T['gen_reporter']['stdout'] = new_set({
   parametrize = { { '' }, { 'TEST_GROUP_DEPTH=2' }, { 'TEST_QUIT_ON_FINISH=false' } },
 }, {
   test = function(env_var)
+    helpers.skip_on_windows('Terminal tests are designed for Unix')
     mark_flaky()
 
     -- Testing "in dynamic" is left for manual approach
-    child.fn.termopen(env_var .. [[ nvim --headless --clean -n -u 'tests/dir-test/init_stdout-reporter_works.lua']])
+    local path = 'tests/dir-test/init_stdout-reporter_works.lua'
+    local command = string.format([[%s %s --headless --clean -n -u %s]], env_var, vim.v.progpath, vim.inspect(path))
+    child.fn.termopen(command)
     -- Wait until check is done and possible process is ended
-    vim.loop.sleep(500)
+    vim.loop.sleep(terminal_wait)
     child.expect_screenshot()
   end,
 })

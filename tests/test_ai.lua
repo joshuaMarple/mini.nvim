@@ -14,8 +14,7 @@ local get_cursor = function(...) return child.get_cursor(...) end
 local set_lines = function(...) return child.set_lines(...) end
 local get_lines = function(...) return child.get_lines(...) end
 local type_keys = function(...) return child.type_keys(...) end
-local poke_eventloop = function() child.api.nvim_eval('1') end
-local sleep = function(ms) vim.loop.sleep(ms); poke_eventloop() end
+local sleep = function(ms) helpers.sleep(ms, child) end
 --stylua: ignore end
 
 local get_latest_message = function() return child.cmd_capture('1messages') end
@@ -52,8 +51,12 @@ local mock_treesitter_builtin = function() child.cmd('source tests/dir-ai/mock-l
 
 local mock_treesitter_plugin = function() child.cmd('set rtp+=tests/dir-ai') end
 
+-- Time constants
+local helper_message_delay = 1000
+local small_time = helpers.get_time_const(10)
+
 -- Output test set
-T = new_set({
+local T = new_set({
   hooks = {
     pre_case = function()
       child.setup()
@@ -122,8 +125,8 @@ T['setup()']['validates `config` argument'] = function()
 end
 
 T['setup()']['properly handles `config.mappings`'] = function()
-  local has_map = function(lhs) return child.cmd_capture('xmap ' .. lhs):find('MiniAi') ~= nil end
-  eq(has_map('a'), true)
+  local has_map = function(lhs, pattern) return child.cmd_capture('xmap ' .. lhs):find(pattern) ~= nil end
+  eq(has_map('a', 'Around'), true)
 
   unload_module()
   child.api.nvim_del_keymap('x', 'a')
@@ -132,7 +135,7 @@ T['setup()']['properly handles `config.mappings`'] = function()
 
   -- Supplying empty string should mean "don't create keymap"
   load_module({ mappings = { around = '', around_next = '', around_last = '' } })
-  eq(has_map('a'), false)
+  eq(has_map('a', 'Around'), false)
 end
 
 local find_textobject = function(...) return child.lua_get('MiniAi.find_textobject(...)', { ... }) end
@@ -148,6 +151,7 @@ local validate_find = function(lines, cursor, args, expected)
     new_expected = {
       from = { line = expected[1][1], col = expected[1][2] },
       to = { line = expected[2][1], col = expected[2][2] },
+      vis_mode = expected.vis_mode,
     }
   end
 
@@ -164,11 +168,11 @@ T['find_textobject()'] = new_set()
 
 T['find_textobject()']['works'] = function() validate_find1d('aa(bb)cc', 3, { 'a', ')' }, { 3, 6 }) end
 
-T['find_textobject()']['respects `id` argument'] =
-  function() validate_find1d('(aa[bb]cc)', 4, { 'a', ']' }, { 4, 7 }) end
+T['find_textobject()']['respects `id` argument'] = function() validate_find1d('(aa[bb]cc)', 4, { 'a', ']' }, { 4, 7 }) end
 
-T['find_textobject()']['respects `ai_type` argument'] =
-  function() validate_find1d('aa(bb)cc', 3, { 'i', ')' }, { 4, 5 }) end
+T['find_textobject()']['respects `ai_type` argument'] = function()
+  validate_find1d('aa(bb)cc', 3, { 'i', ')' }, { 4, 5 })
+end
 
 T['find_textobject()']['respects `opts.n_lines`'] = function()
   local lines = { '(', '', 'a', '', ')' }
@@ -386,6 +390,20 @@ T['find_textobject()']['handles function as textobject spec']['returns array of 
   child.lua([[MiniAi.config.n_lines = 10]])
   child.lua([[MiniAi.config.search_method = 'cover']])
   validate_find(lines, { 1, 4 }, { 'a', 'r' }, nil)
+
+  -- Should account for region `vis_mode`
+  child.lua([[_G.line_regions = function(_, _, _)
+    return {
+      { from = { line = 1, col = 1 }, to = { line = 2, col = 1 }, vis_mode = 'V' },
+      { from = { line = 3, col = 1 }, to = { line = 4, col = 1 }, vis_mode = 'V' },
+    }
+  end]])
+  child.lua([[MiniAi.config.custom_textobjects = { m = _G.line_regions }]])
+
+  local ref_region_1 = { { 1, 1 }, { 2, 1 }, vis_mode = 'V' }
+  validate_find({ 'aaa', 'bbb', 'ccc', 'ddd' }, { 1, 0 }, { 'a', 'm' }, ref_region_1)
+  local ref_region_2 = { { 3, 1 }, { 4, 1 }, vis_mode = 'V' }
+  validate_find({ 'aaa', 'bbb', 'ccc', 'ddd' }, { 3, 0 }, { 'a', 'm' }, ref_region_2)
 end
 
 T['find_textobject()']['handles function as specification item'] = function()
@@ -463,8 +481,9 @@ local validate_move = function(lines, cursor, args, expected)
   eq(get_cursor(), { expected[1], expected[2] })
 end
 
-local validate_move1d =
-  function(line, column, args, expected) validate_move({ line }, { 1, column }, args, { 1, expected }) end
+local validate_move1d = function(line, column, args, expected)
+  validate_move({ line }, { 1, column }, args, { 1, expected })
+end
 
 T['move_cursor()'] = new_set()
 
@@ -493,8 +512,9 @@ end
 
 T['move_cursor()']['respects `id` argument'] = function() validate_move1d('aa[bbb]', 4, { 'left', 'a', ']' }, 2) end
 
-T['move_cursor()']['respects `opts` argument'] =
-  function() validate_move1d('aa(bbb)cc(ddd)', 4, { 'left', 'a', ')', { n_times = 2 } }, 9) end
+T['move_cursor()']['respects `opts` argument'] = function()
+  validate_move1d('aa(bbb)cc(ddd)', 4, { 'left', 'a', ')', { n_times = 2 } }, 9)
+end
 
 T['move_cursor()']['always jumps exactly `opts.n_times` times'] = function()
   -- It can be not that way if cursor is on edge of one of target textobjects
@@ -682,7 +702,7 @@ T['gen_spec']['treesitter()'] = new_set({
       -- Start editing reference file
       child.cmd('edit tests/dir-ai/lua-file.lua')
 
-      -- Defin "function definition" textobject
+      -- Define "function definition" textobject
       child.lua([[MiniAi.config.custom_textobjects = {
         F = MiniAi.gen_spec.treesitter({ a = '@function.outer', i = '@function.inner' })
       }]])
@@ -784,7 +804,12 @@ T['gen_spec']['treesitter()']['validates builtin treesitter presence'] = functio
   mock_treesitter_builtin()
 
   -- Query
-  child.lua('vim.treesitter.get_query = function() return nil end')
+  local lua_cmd = string.format(
+    'vim.treesitter.%s = function() return nil end',
+    child.fn.has('nvim-0.9') == 1 and 'query.get' or 'get_query'
+  )
+  child.lua(lua_cmd)
+
   expect.error(
     function() child.lua([[MiniAi.find_textobject('a', 'F')]]) end,
     vim.pesc([[(mini.ai) Can not get query for buffer 1 and language 'lua'.]])
@@ -821,37 +846,24 @@ T['select_textobject()'] = new_set()
 
 T['select_textobject()']['works'] = function() validate_select1d('aa(bb)', 3, { 'a', ')' }, { 3, 6 }) end
 
-T['select_textobject()']['respects `ai_type` argument'] =
-  function() validate_select1d('aa(bb)', 3, { 'i', ')' }, { 4, 5 }) end
+T['select_textobject()']['respects `ai_type` argument'] = function()
+  validate_select1d('aa(bb)', 3, { 'i', ')' }, { 4, 5 })
+end
 
 T['select_textobject()']['respects `id` argument'] = function()
   validate_select1d('aa[bb]', 3, { 'a', ']' }, { 3, 6 })
   validate_select1d('aa[bb]', 3, { 'i', ']' }, { 4, 5 })
 end
 
-T['select_textobject()']['respects `opts` argument'] =
-  function() validate_select1d('aa(bb)cc(dd)', 4, { 'a', ')', { n_times = 2 } }, { 9, 12 }) end
+T['select_textobject()']['respects `opts` argument'] = function()
+  validate_select1d('aa(bb)cc(dd)', 4, { 'a', ')', { n_times = 2 } }, { 9, 12 })
+end
 
 T['select_textobject()']['respects `opts.vis_mode`'] = function()
   local lines, cursor = { '(a', 'a', 'a)' }, { 2, 0 }
   validate_select(lines, cursor, { 'a', ')', { vis_mode = 'v' } }, { { 1, 1 }, { 3, 2 } })
   validate_select(lines, cursor, { 'a', ')', { vis_mode = 'V' } }, { 1, 3 })
   validate_select(lines, cursor, { 'a', ')', { vis_mode = '<C-v>' } }, { { 1, 1 }, { 3, 2 } })
-end
-
-T['select_textobject()']['respects `opts.operator_pending`'] = function()
-  -- This currently has effect only for empty regions. More testing is done in
-  -- integration tests.
-  child.o.eventignore = ''
-  set_lines({ 'a()' })
-  set_cursor(1, 0)
-
-  child.v.operator = 'y'
-  child.lua([[MiniAi.select_textobject('i', ')', { operator_pending = true })]])
-  eq(child.fn.mode(), 'n')
-  eq(get_cursor(), { 1, 0 })
-  eq(get_latest_message(), '(mini.ai) Textobject region is empty. Nothing is done.')
-  eq(child.o.eventignore, '')
 end
 
 T['select_textobject()']['works with empty region'] = function() validate_select1d('a()', 0, { 'i', ')' }, { 3, 3 }) end
@@ -877,15 +889,32 @@ T['select_textobject()']["respects 'selection=exclusive'"] = function()
   validate('a', '  ')
 end
 
--- Actual testing is done in 'Integration tests'
-T['expr_textobject()'] = new_set()
+T['select_textobject()']['respects `vis_mode` from textobject region'] = function()
+  -- Should respect `vis_mode` in a region
+  local validate = function(tobj_vis_mode, type_vis_mode)
+    local lua_cmd = string.format(
+      [[_G.cur_line = function(ai_type, id, opts)
+        return { from = { line = vim.fn.line('.'), col = 1 }, vis_mode = '%s' }
+      end]],
+      tobj_vis_mode
+    )
+    child.lua(lua_cmd)
+    child.lua([[MiniAi.config.custom_textobjects = { c = _G.cur_line }]])
 
-T['expr_textobject()']['is present'] = function() eq(child.lua_get('type(MiniAi.expr_textobject)'), 'function') end
+    set_lines({ 'aaaa', 'bbbb' })
+    type_keys(type_vis_mode, 'ac')
+    eq(child.fn.mode(), tobj_vis_mode)
 
--- Actual testing is done in 'Integration tests'
-T['expr_motion()'] = new_set()
+    child.ensure_normal_mode()
+  end
 
-T['expr_motion()']['is present'] = function() eq(child.lua_get('type(MiniAi.expr_motion)'), 'function') end
+  validate('v', 'V')
+  validate('v', '\22')
+  validate('V', 'v')
+  validate('V', '\22')
+  validate('\22', 'v')
+  validate('\22', 'V')
+end
 
 T['Search method'] = new_set()
 
@@ -1402,6 +1431,28 @@ T['Textobject']['works in Operator-pending mode'] = function()
   validate_edit(lines, cursor, { 'aabb', 'ccc', 'ddee' }, { 1, 2 }, 'd<C-v>a)')
 end
 
+T['Textobject']['can be cancelled'] = function()
+  local validate = function(keys, mode)
+    set_lines({ 'aaa' })
+    set_cursor(1, 1)
+    type_keys(keys, '<Esc>')
+
+    eq(child.api.nvim_get_mode().mode, mode)
+    type_keys('<Esc>')
+
+    eq(get_lines(), { 'aaa' })
+    eq(get_cursor(), { 1, 1 })
+
+    child.ensure_normal_mode()
+  end
+
+  -- Visual mode should be cancelled without leaving Visual mode
+  validate({ 'v', 'i' }, 'v')
+
+  -- Operator-pending mode should be cancelled into Normal mode
+  validate({ 'd', 'i' }, 'n')
+end
+
 T['Textobject']['works with different mappings'] = function()
   reload_module({ mappings = { around = 'A', inside = 'I' } })
 
@@ -1481,18 +1532,19 @@ T['Textobject']['falls back in case of absent textobject id'] = function()
   end
 
   -- Builtin textobject
+  local pattern = 'mini.*ai'
   -- Visual mode
-  expect.match(child.fn.maparg('a', 'x'), 'MiniAi')
+  expect.match(child.fn.maparg('a', 'x'), pattern)
   validate('aaa bbb', 0, { 'a', 'w' }, { 1, 4 })
 
-  expect.match(child.fn.maparg('i', 'x'), 'MiniAi')
+  expect.match(child.fn.maparg('i', 'x'), pattern)
   validate('aaa bbb', 0, { 'i', 'w' }, { 1, 3 })
 
   -- Operator-pending mode
-  expect.match(child.fn.maparg('a', 'o'), 'MiniAi')
+  expect.match(child.fn.maparg('a', 'o'), pattern)
   validate_edit1d('aaa bbb', 0, 'bbb', 0, 20, 'd', 'a', 'w')
 
-  expect.match(child.fn.maparg('i', 'o'), 'MiniAi')
+  expect.match(child.fn.maparg('i', 'o'), pattern)
   validate_edit1d('aaa bbb', 0, ' bbb', 0, 10, 'd', 'i', 'w')
 
   -- Custom textobject
@@ -1655,9 +1707,9 @@ T['Textobject']['prompts helper message after one idle second'] = new_set({ para
 
     -- Both mappings are applied only after `timeoutlen` milliseconds, because
     -- there are `an`/`in`/`al`/`il` mappings.
-    -- Wait 1000 seconds after that.
-    child.o.timeoutlen = 50
-    local total_wait_time = 1000 + child.o.timeoutlen
+    -- Wait fixed time after that.
+    child.o.timeoutlen = 2 * small_time
+    local total_wait_time = helper_message_delay + child.o.timeoutlen + small_time
 
     set_lines({ '(aaa)' })
     set_cursor(1, 1)
@@ -1668,11 +1720,11 @@ T['Textobject']['prompts helper message after one idle second'] = new_set({ para
     -- Should show helper message without adding it to `:messages` and causing
     -- hit-enter-prompt
     eq(get_latest_message(), '')
-    child.expect_screenshot()
+    child.expect_screenshot({ redraw = false })
 
     -- Should clear afterwards
     type_keys(')')
-    child.expect_screenshot()
+    child.expect_screenshot({ redraw = false })
   end,
 })
 
@@ -1701,6 +1753,18 @@ T['Textobject']['shows message if no textobject is found'] = function()
   )
 end
 
+T['Textobject']['shows message for empty textobject in Operator-pending mode'] = function()
+  child.o.eventignore = ''
+  set_lines({ 'a()' })
+  set_cursor(1, 0)
+
+  type_keys('yi)')
+  eq(child.fn.mode(), 'n')
+  eq(get_cursor(), { 1, 0 })
+  eq(get_latest_message(), '(mini.ai) Textobject region is empty. Nothing is done.')
+  eq(child.o.eventignore, '')
+end
+
 T['Textobject']['respects `vim.{g,b}.miniai_disable`'] = new_set({
   parametrize = { { 'g' }, { 'b' } },
 }, {
@@ -1717,10 +1781,11 @@ T['Textobject']['respects `vim.{g,b}.miniai_disable`'] = new_set({
 
 T['Textobject']['respects `config.silent`'] = function()
   child.set_size(5, 40)
+  child.o.showcmd = false
   child.lua('MiniAi.config.silent = true')
 
-  child.o.timeoutlen = 50
-  local total_wait_time = 1000 + child.o.timeoutlen
+  child.o.timeoutlen = 2 * small_time
+  local total_wait_time = helper_message_delay + child.o.timeoutlen + small_time
 
   set_lines({ '(aaa)' })
   set_cursor(1, 1)
@@ -1843,8 +1908,9 @@ local validate_motion = function(lines, cursor, keys, expected)
   eq(get_cursor(), { expected[1], expected[2] })
 end
 
-local validate_motion1d =
-  function(line, column, keys, expected) validate_motion({ line }, { 1, column }, keys, { 1, expected }) end
+local validate_motion1d = function(line, column, keys, expected)
+  validate_motion({ line }, { 1, column }, keys, { 1, expected })
+end
 
 T['Motion'] = new_set()
 
@@ -1928,6 +1994,8 @@ T['Motion']['works with multibyte characters'] = function()
   validate_motion1d(' (ыыы) ', 0, 'g[)', 1)
   validate_motion1d(' (ыыы) ', 0, 'g])', 8)
 end
+
+T['Motion']['works with special textobject id'] = function() validate_motion1d([[aa\bb\cc]], 4, [[g[\]], 3) end
 
 T['Motion']['respects `vim.{g,b}.miniai_disable`'] = new_set({
   parametrize = { { 'g' }, { 'b' } },
@@ -2023,6 +2091,22 @@ T['Builtin']['Bracket']['is balanced'] = function(key)
 end
 
 T['Builtin']['Bracket']['works with empty region'] = function(key)
+  -- Emulate "replace" from 'mini.operators'
+  child.lua([[
+    _G.MiniOperators = {}
+    _G.MiniOperators.replace = function(mode)
+      if mode == nil then
+        vim.o.operatorfunc = 'v:lua.MiniOperators.replace'
+        return 'g@'
+      end
+      vim.fn.setreg('a', 'xxx')
+      vim.cmd('normal! `[v`]"aP`[')
+    end
+
+    vim.keymap.set('n', 'gr', _G.MiniOperators.replace, { expr = true })
+  ]])
+
+  -- Validate
   local left, right, _ = unpack(brackets[key])
 
   local line = 'a' .. left .. right
@@ -2030,6 +2114,8 @@ T['Builtin']['Bracket']['works with empty region'] = function(key)
     validate_tobj1d(line, i, { 'i', key }, { 3, 3 })
     validate_edit1d(line, i, line, 2, { 'ci', key })
     validate_edit1d(line, i, line, 2, { 'di', key })
+
+    validate_edit1d(line, i, 'a' .. left .. 'xxx' .. right, 2, { 'gri', key })
   end
 end
 
@@ -2642,8 +2728,7 @@ T['Builtin']['User prompt']['works consecutively'] = function()
   validate_next_region1d(keys, { 10, 17 })
 end
 
-T['Builtin']['User prompt']['works with empty region'] =
-  function() validate_tobj1d('_eo', 0, 'i?e<CR>o<CR>', { 3, 3 }) end
+T['Builtin']['User prompt']['works with empty region'] = function() validate_tobj1d('_eo', 0, 'i?e<CR>o<CR>', { 3, 3 }) end
 
 T['Builtin']['User prompt']['can not be covering'] = function()
   set_lines({ 'e_e_o_o' })
@@ -2729,11 +2814,11 @@ end
 T['Builtin']['Default'] = new_set()
 
 T['Builtin']['Default']['works'] = function()
-  -- Should allow only punctuation, digits, and whitespace
+  -- Should allow only punctuation, digits, space, or tab
   -- Should include only right edge
 
-  local sample_keys = { ',', '.', '_', '*', '-', '0', '1', ' ', '\t' }
-  for _, key in ipairs(sample_keys) do
+  local good_keys = { ',', '.', '_', '*', '-', '0', '1', ' ', '\t', '\\' }
+  for _, key in ipairs(good_keys) do
     -- Single line
     validate_tobj1d('a' .. key .. 'bb' .. key, 0, 'a' .. key, { 3, 5 })
     validate_tobj1d('a' .. key .. 'bb' .. key, 0, 'i' .. key, { 3, 4 })
@@ -2741,6 +2826,17 @@ T['Builtin']['Default']['works'] = function()
     -- Multiple lines
     validate_tobj({ key, 'aa', key }, { 2, 0 }, 'a' .. key, { { 1, 2 }, { 3, 1 } })
     validate_tobj({ key, 'aa', key }, { 2, 0 }, 'i' .. key, { { 1, 2 }, { 2, 3 } })
+  end
+
+  -- Should stop with message on bad keys
+  child.set_size(10, 80)
+  child.o.cmdheight = 5
+  local bad_keys = { '\n', '\r', '\1', child.api.nvim_replace_termcodes('<BS>', true, true, true) }
+  for _, key in ipairs(bad_keys) do
+    set_lines({ 'aaa' })
+    type_keys('d', 'a', key)
+    expect.match(child.cmd_capture('1messages'), 'alphanumeric, punctuation, space, or tab')
+    child.cmd('messages clear')
   end
 end
 
@@ -2793,6 +2889,13 @@ T['Builtin']['Default']['can not be covering'] = function()
   eq(get_mode(), 'n')
   eq(get_cursor(), { 1, 4 })
   expect.match(get_latest_message(), 'a_')
+end
+
+T['Builtin']['Default']['detects covering with smallest width'] = function()
+  validate_edit1d('_a_bb_', 2, '__bb_', 1, 'di_')
+  validate_edit1d('_aa_b_', 3, '_aa__', 4, 'di_')
+
+  validate_edit1d('_a_b_c_b_a_', 5, '_a_b__b_a_', 5, 'di_')
 end
 
 local set_custom_tobj = function(tbl) child.lua('MiniAi.config.custom_textobjects = ' .. vim.inspect(tbl)) end
@@ -2922,8 +3025,24 @@ T['Custom textobject']['handles function as textobject spec'] = function()
   child.lua([[MiniAi.config.search_method = 'next']])
   validate_tobj(lines, { 2, 0 }, 'aL', { { 4, 1 }, { 4, 81 } })
 
-  child.lua([[MiniAi.config.n_lines = 0]])
+  child.lua('MiniAi.config.n_lines = 0')
   validate_no_tobj(lines, { 2, 0 }, 'aL')
+
+  -- Function which returns region array with `vis_mode` set
+  child.lua([[MiniAi.config.search_method = 'cover']])
+  child.lua('MiniAi.config.n_lines = 50')
+  child.lua([[_G.line_regions = function(_, _, _)
+    return {
+      { from = { line = 1, col = 1 }, to = { line = 2, col = 1 }, vis_mode = 'V' },
+      { from = { line = 3, col = 1 }, to = { line = 4, col = 1 }, vis_mode = 'V' },
+    }
+  end]])
+  child.lua('MiniAi.config.custom_textobjects = { m = _G.line_regions }')
+
+  set_lines({ 'aaa', 'bbb', 'ccc', 'ddd' })
+  set_cursor(3, 0)
+  type_keys('d', 'a', 'm')
+  eq(get_lines(), { 'aaa', 'bbb' })
 end
 
 T['Custom textobject']['handles function as specification item'] = function()
@@ -3029,12 +3148,12 @@ T['Custom textobject']['documented examples']['full buffer'] = function()
   child.lua([[_G.full_buffer = function()
     local from = { line = 1, col = 1 }
     local to = { line = vim.fn.line('$'), col = math.max(vim.fn.getline('$'):len(), 1) }
-    return { from = from, to = to }
+    return { from = from, to = to, vis_mode = 'V' }
   end]])
   child.lua('MiniAi.config.custom_textobjects = { g = _G.full_buffer }')
 
-  validate_tobj({ 'aaaa', 'bbb', 'cc' }, { 2, 0 }, 'ag', { { 1, 1 }, { 3, 2 } })
-  validate_tobj({ '' }, { 1, 0 }, 'ag', { { 1, 1 }, { 1, 1 } })
+  validate_tobj({ 'aaaa', 'bbb', 'cc' }, { 2, 0 }, 'ag', { 1, 3 }, 'V')
+  validate_tobj({ '' }, { 1, 0 }, 'ag', { 1, 1 }, 'V')
 end
 
 T['Custom textobject']['documented examples']['wide lines'] = function()

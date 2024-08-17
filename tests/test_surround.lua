@@ -14,8 +14,7 @@ local get_cursor = function(...) return child.get_cursor(...) end
 local set_lines = function(...) return child.set_lines(...) end
 local get_lines = function(...) return child.get_lines(...) end
 local type_keys = function(...) return child.type_keys(...) end
-local poke_eventloop = function() child.api.nvim_eval('1') end
-local sleep = function(ms) vim.loop.sleep(ms); poke_eventloop() end
+local sleep = function(ms) helpers.sleep(ms, child) end
 --stylua: ignore end
 
 -- Make helpers
@@ -76,8 +75,13 @@ local mock_treesitter_builtin = function() child.cmd('source tests/dir-surround/
 
 local mock_treesitter_plugin = function() child.cmd('set rtp+=tests/dir-surround') end
 
+-- Time constants
+local default_highlight_duraion = 500
+local helper_message_delay = 1000
+local small_time = helpers.get_time_const(10)
+
 -- Output test set ============================================================
-T = new_set({
+local T = new_set({
   hooks = {
     pre_case = function()
       child.setup()
@@ -98,6 +102,8 @@ T['setup()']['creates side effects'] = function()
   eq(child.lua_get('type(_G.MiniSurround)'), 'table')
 
   -- Highlight groups
+  child.cmd('hi clear')
+  load_module()
   expect.match(child.cmd_capture('hi MiniSurround'), 'links to IncSearch')
 end
 
@@ -158,21 +164,21 @@ T['setup()']['validates `config` argument'] = function()
 end
 
 T['setup()']['properly handles `config.mappings`'] = function()
-  local has_map = function(lhs, rhs) return child.cmd_capture('nmap ' .. lhs):find(rhs or 'MiniSurround') ~= nil end
+  local has_map = function(lhs, pattern) return child.cmd_capture('nmap ' .. lhs):find(pattern) ~= nil end
 
   -- Regular mappings
-  eq(has_map('sa'), true)
+  eq(has_map('sa', 'surround'), true)
 
   unload_module()
   child.api.nvim_del_keymap('n', 'sa')
 
   -- Supplying empty string should mean "don't create keymap"
   load_module({ mappings = { add = '' } })
-  eq(has_map('sa'), false)
+  eq(has_map('sa', 'surround'), false)
 
   -- Extended mappings
-  eq(has_map('sdl', [['search_method': 'prev']]), true)
-  eq(has_map('sdn', [['search_method': 'next']]), true)
+  eq(has_map('sdl', 'previous'), true)
+  eq(has_map('sdn', 'next'), true)
 
   unload_module()
   child.api.nvim_del_keymap('n', 'sd')
@@ -182,10 +188,10 @@ T['setup()']['properly handles `config.mappings`'] = function()
   child.api.nvim_del_keymap('n', 'srn')
 
   load_module({ mappings = { delete = '', suffix_last = '' } })
-  eq(has_map('sdl', [['search_method': 'prev']]), false)
-  eq(has_map('sdn', [['search_method': 'next']]), false)
-  eq(has_map('srl', [['search_method': 'prev']]), false)
-  eq(has_map('srn', [['search_method': 'next']]), true)
+  eq(has_map('sdl', 'previous'), false)
+  eq(has_map('sdn', 'next'), false)
+  eq(has_map('srl', 'previous'), false)
+  eq(has_map('srn', 'next'), true)
 end
 
 T['gen_spec'] = new_set()
@@ -246,9 +252,9 @@ T['gen_spec']['input']['treesitter()']['works with empty region'] = function()
   set_lines(lines)
   set_cursor(1, 0)
   type_keys('sh', 'o')
-  poke_eventloop()
+  child.poke_eventloop()
   -- It highlights `local` differently from other places
-  child.expect_screenshot()
+  if child.fn.has('nvim-0.10') == 1 then child.expect_screenshot() end
 
   -- Edge case for empty region on end of last line
   set_lines(lines)
@@ -342,7 +348,12 @@ T['gen_spec']['input']['treesitter()']['validates builtin treesitter presence'] 
   child.cmdheight = 40
 
   -- Query
-  child.lua('vim.treesitter.get_query = function() return nil end')
+  local lua_cmd = string.format(
+    'vim.treesitter.%s = function() return nil end',
+    child.fn.has('nvim-0.9') == 1 and 'query.get' or 'get_query'
+  )
+  child.lua(lua_cmd)
+
   expect.error(
     function() type_keys('sd', 'F', '<CR>') end,
     vim.pesc([[(mini.surround) Can not get query for buffer 1 and language 'lua'.]])
@@ -461,7 +472,7 @@ T['Add surrounding']['respects `config.respect_selection_type` in blockwise mode
   -- General test in Operator-pending mode
   set_lines({ 'aaaaa', 'bbbbb' })
 
-  -- - Create mark to be able to perform non-trival movement
+  -- - Create mark to be able to perform non-trivial movement
   set_cursor(2, 3)
   type_keys('ma')
 
@@ -507,10 +518,10 @@ T['Add surrounding']['prompts helper message after one idle second'] = function(
 
   -- Execute one time to test if 'needs help message' flag is set per call
   type_keys('sa', 'iw', ')')
-  sleep(200)
+  sleep(0.1 * helper_message_delay)
 
   type_keys('sa', 'iw')
-  sleep(1000)
+  sleep(helper_message_delay + small_time)
 
   -- Should show helper message without adding it to `:messages` and causing
   -- hit-enter-prompt
@@ -534,20 +545,22 @@ T['Add surrounding']['works with multibyte characters'] = function()
 end
 
 T['Add surrounding']['works on whole line'] = function()
-  -- Should ignore indent at left mark but not whitespace at right
-  validate_edit({ '  aaa ', '' }, { 1, 0 }, { '  (aaa )', '' }, { 1, 3 }, type_keys, 'sa', '_', ')')
-  validate_edit({ '  aaa ', '' }, { 1, 0 }, { '  (aaa )', '' }, { 1, 3 }, type_keys, 'V', 'sa', ')')
+  -- Should ignore both indent (leading whitespace) at start line and trailing
+  -- whitespace and end line. Should work with both tabs and spaces.
+  validate_edit({ ' \t aaa\t ', '' }, { 1, 0 }, { ' \t (aaa)\t ', '' }, { 1, 4 }, type_keys, 'sa', '_', ')')
+  validate_edit({ ' \t aaa\t ', '' }, { 1, 0 }, { ' \t (aaa)\t ', '' }, { 1, 4 }, type_keys, 'V', 'sa', ')')
 end
 
 T['Add surrounding']['works on multiple lines'] = function()
   local f = function() type_keys('sa', 'ap', ')') end
   local f_vis = function() type_keys('Vap', 'sa', ')') end
 
-  -- Should ignore indent at left mark but not whitespace at right
-  validate_edit({ '  aaa ', 'bbb', ' ccc' }, { 1, 0 }, { '  (aaa ', 'bbb', ' ccc)' }, { 1, 3 }, f)
-  validate_edit({ '  aaa ', 'bbb', ' ccc' }, { 1, 0 }, { '  (aaa ', 'bbb', ' ccc)' }, { 1, 3 }, f_vis)
-  validate_edit({ '  aaa ', ' ' }, { 1, 0 }, { '  (aaa ', ' )' }, { 1, 3 }, f)
-  validate_edit({ '  aaa ', ' ' }, { 1, 0 }, { '  (aaa ', ' )' }, { 1, 3 }, f_vis)
+  -- Should ignore both indent (leading whitespace) at start line and trailing
+  -- whitespace and end line. Should work with both tabs and spaces.
+  validate_edit({ ' \t aaa ', 'bbb', ' ccc\t ' }, { 1, 0 }, { ' \t (aaa ', 'bbb', ' ccc)\t ' }, { 1, 4 }, f)
+  validate_edit({ ' \t aaa ', 'bbb', ' ccc\t ' }, { 1, 0 }, { ' \t (aaa ', 'bbb', ' ccc)\t ' }, { 1, 4 }, f_vis)
+  validate_edit({ ' \t aaa ', '\t ' }, { 1, 0 }, { ' \t (aaa ', ')\t ' }, { 1, 4 }, f)
+  validate_edit({ ' \t aaa ', '\t ' }, { 1, 0 }, { ' \t (aaa ', ')\t ' }, { 1, 4 }, f_vis)
 end
 
 T['Add surrounding']['works with multiline output surroundings'] = function()
@@ -592,6 +605,32 @@ T['Add surrounding']['works with different mapping'] = function()
   child.api.nvim_del_keymap('n', 'SA')
 end
 
+T['Add surrounding']['respects two types of `[count]` in Normal mode'] = function()
+  validate_edit1d('aa bb cc dd', 0, '((aa ))bb cc dd', 2, type_keys, '2sa', 'aw', ')')
+  validate_edit1d('aa bb cc dd', 0, '(aa bb cc )dd', 1, type_keys, 'sa', '3aw', ')')
+  validate_edit1d('aa bb cc dd', 0, '((aa bb cc ))dd', 2, type_keys, '2sa', '3aw', ')')
+
+  -- Should work with dot-repeat
+  validate_edit1d('aa bb cc dd ee', 0, '((aa bb ))((cc dd ))ee', 12, type_keys, '2sa2aw)', 'fc', '.')
+end
+
+T['Add surrounding']['respects `[count]` in Visual mode'] = function()
+  validate_edit1d('aa bb cc dd', 0, '((aa ))bb cc dd', 2, type_keys, 'vaw', '2sa', ')')
+  validate_edit1d('aa bb cc dd', 0, '((aa bb cc ))dd', 2, type_keys, 'v3aw', '2sa', ')')
+end
+
+T['Add surrounding']['handles `[count]` cache'] = function()
+  set_lines({ 'aa bb' })
+  set_cursor(1, 0)
+
+  type_keys('2saiw)')
+  eq(get_lines(), { '((aa)) bb' })
+
+  set_cursor(1, 7)
+  type_keys('viw', 'sa)')
+  eq(get_lines(), { '((aa)) (bb)' })
+end
+
 T['Add surrounding']['respects `selection=exclusive` option'] = function()
   child.o.selection = 'exclusive'
   local f = function() type_keys('v2l', 'sa', ')') end
@@ -628,7 +667,7 @@ T['Add surrounding']['respects `config.silent`'] = function()
 
   -- It should not show helper message after one idle second
   type_keys('sa', 'iw')
-  sleep(1000 + 15)
+  sleep(helper_message_delay + small_time)
   child.expect_screenshot()
 end
 
@@ -758,15 +797,15 @@ T['Delete surrounding']['prompts helper message after one idle second'] = functi
 
   -- Mapping is applied only after `timeoutlen` milliseconds, because
   -- there are `sdn`/`sdl` mappings. Wait 1000 seconds after that.
-  child.o.timeoutlen = 50
-  local total_wait_time = 1000 + child.o.timeoutlen
+  child.o.timeoutlen = 5 * small_time
+  local total_wait_time = helper_message_delay + child.o.timeoutlen + small_time
 
   set_lines({ '((aaa))' })
   set_cursor(1, 1)
 
   -- Execute one time to test if 'needs help message' flag is set per call
   type_keys('sd', ')')
-  sleep(200)
+  sleep(0.1 * helper_message_delay)
 
   type_keys('sd')
   sleep(total_wait_time)
@@ -882,15 +921,15 @@ T['Delete surrounding']['respects `config.silent`'] = function()
   child.lua('MiniSurround.config.silent = true')
   child.set_size(10, 20)
 
-  child.o.timeoutlen = 50
-  local total_wait_time = 1000 + child.o.timeoutlen
+  child.o.timeoutlen = 5 * small_time
+  local total_wait_time = helper_message_delay + child.o.timeoutlen + small_time
 
   set_lines({ '<aaa>' })
   set_cursor(1, 1)
 
   -- It should not show helper message after one idle second
   type_keys('sd')
-  sleep(total_wait_time + 15)
+  sleep(total_wait_time)
   child.expect_screenshot()
 
   -- It should not show message about "No surrounding found"
@@ -928,7 +967,7 @@ T['Replace surrounding']['works with dot-repeat'] = function()
   eq(get_lines(), { 'aaa <bbb>' })
 end
 
-T['Delete surrounding']['works in extended mappings'] = function()
+T['Replace surrounding']['works in extended mappings'] = function()
   validate_edit1d('(aa) (bb) (cc)', 1, '(aa) <bb> (cc)', 6, type_keys, 'srn', ')', '>')
   validate_edit1d('(aa) (bb) (cc)', 1, '(aa) (bb) <cc>', 11, type_keys, '2srn', ')', '>')
 
@@ -989,15 +1028,15 @@ T['Replace surrounding']['prompts helper message after one idle second'] = funct
 
   -- Mapping is applied only after `timeoutlen` milliseconds, because
   -- there are `srn`/`srl` mappings. Wait 1000 seconds after that.
-  child.o.timeoutlen = 50
-  local total_wait_time = 1000 + child.o.timeoutlen
+  child.o.timeoutlen = 5 * small_time
+  local total_wait_time = helper_message_delay + child.o.timeoutlen + small_time
 
   set_lines({ '((aaa))' })
   set_cursor(1, 1)
 
   -- Execute one time to test if 'needs help message' flag is set per call
   type_keys('sr', ')', '>')
-  sleep(200)
+  sleep(0.1 * helper_message_delay)
 
   type_keys('sr')
   sleep(total_wait_time)
@@ -1011,7 +1050,7 @@ T['Replace surrounding']['prompts helper message after one idle second'] = funct
   type_keys(')')
 
   -- Here mapping collision doesn't matter any more
-  sleep(1000)
+  sleep(helper_message_delay + small_time)
   eq(get_latest_message(), '')
   child.expect_screenshot()
 
@@ -1135,15 +1174,15 @@ T['Replace surrounding']['respects `config.silent`'] = function()
   child.lua('MiniSurround.config.silent = true')
   child.set_size(10, 20)
 
-  child.o.timeoutlen = 50
-  local total_wait_time = 1000 + child.o.timeoutlen
+  child.o.timeoutlen = 5 * small_time
+  local total_wait_time = helper_message_delay + child.o.timeoutlen + small_time
 
   set_lines({ '<aaa>' })
   set_cursor(1, 1)
 
   -- It should not show helper message after one idle second
   type_keys('sr')
-  sleep(total_wait_time + 15)
+  sleep(total_wait_time)
   child.expect_screenshot()
 
   -- It should not show message about "No surrounding found"
@@ -1281,15 +1320,15 @@ T['Find surrounding']['prompts helper message after one idle second'] = function
 
   -- Mapping is applied only after `timeoutlen` milliseconds, because
   -- there are `sfn`/`sfl` mappings. Wait 1000 seconds after that.
-  child.o.timeoutlen = 50
-  local total_wait_time = 1000 + child.o.timeoutlen
+  child.o.timeoutlen = 5 * small_time
+  local total_wait_time = helper_message_delay + child.o.timeoutlen + small_time
 
   set_lines({ '(aaa)' })
   set_cursor(1, 2)
 
   -- Execute one time to test if 'needs help message' flag is set per call
   type_keys('sf', ')')
-  sleep(200)
+  sleep(0.1 * helper_message_delay)
 
   type_keys('sf')
   sleep(total_wait_time)
@@ -1419,7 +1458,7 @@ T['Highlight surrounding'] = new_set({
   hooks = {
     pre_case = function()
       -- Reduce default highlight duration to speed up tests execution
-      child.lua('MiniSurround.config.highlight_duration = 50')
+      child.lua('MiniSurround.config.highlight_duration = ' .. (5 * small_time))
       child.set_size(5, 12)
       child.o.cmdheight = 1
     end,
@@ -1428,7 +1467,7 @@ T['Highlight surrounding'] = new_set({
 
 local activate_highlighting = function()
   type_keys('sh)')
-  poke_eventloop()
+  child.poke_eventloop()
 end
 
 T['Highlight surrounding']['works with dot-repeat'] = function()
@@ -1441,11 +1480,11 @@ T['Highlight surrounding']['works with dot-repeat'] = function()
   child.expect_screenshot()
 
   -- Should still highlight
-  sleep(test_duration - 10)
+  sleep(test_duration - small_time)
   child.expect_screenshot()
 
   -- Should stop highlighting
-  sleep(10)
+  sleep(small_time + small_time)
   child.expect_screenshot()
 
   -- Should highlight with dot-repeat
@@ -1453,7 +1492,7 @@ T['Highlight surrounding']['works with dot-repeat'] = function()
   child.expect_screenshot()
 
   -- Should stop highlighting
-  sleep(test_duration)
+  sleep(test_duration + small_time)
   child.expect_screenshot()
 
   -- Should allow not immediate dot-repeat
@@ -1469,22 +1508,22 @@ T['Highlight surrounding']['works in extended mappings'] = function()
 
   set_cursor(1, 1)
   type_keys('shn', ')')
-  poke_eventloop()
+  child.poke_eventloop()
   child.expect_screenshot()
-  sleep(test_duration + 1)
+  sleep(test_duration + small_time)
 
   set_cursor(1, 12)
   type_keys('shl', ')')
-  poke_eventloop()
+  child.poke_eventloop()
   child.expect_screenshot()
-  sleep(test_duration + 1)
+  sleep(test_duration + small_time)
 
   -- Dot-repeat
   set_cursor(1, 1)
   type_keys('shn', ')')
-  sleep(test_duration + 1)
+  sleep(test_duration + small_time)
   type_keys('.')
-  poke_eventloop()
+  child.poke_eventloop()
   child.expect_screenshot()
 end
 
@@ -1507,7 +1546,7 @@ T['Highlight surrounding']['respects `config.n_lines`'] = function()
 end
 
 T['Highlight surrounding']['works with multiline input surroundings'] = function()
-  child.lua('MiniSurround.config.highlight_duration = 5')
+  child.lua('MiniSurround.config.highlight_duration = ' .. small_time)
   child.lua([[MiniSurround.config.custom_surroundings = {
     a = { input = { '%(\na().-()a\n%)' } },
     b = { input = { '%(\n().-()\n%)' } },
@@ -1519,15 +1558,15 @@ T['Highlight surrounding']['works with multiline input surroundings'] = function
 
   type_keys('sh', 'a')
   child.expect_screenshot()
-  sleep(10)
+  sleep(small_time + small_time)
 
   type_keys('sh', 'b')
   child.expect_screenshot()
-  sleep(10)
+  sleep(small_time + small_time)
 
   type_keys('sh', 'c')
   child.expect_screenshot()
-  sleep(10)
+  sleep(small_time + small_time)
 
   type_keys('sh', 'd')
   child.expect_screenshot()
@@ -1546,12 +1585,12 @@ T['Highlight surrounding']['removes highlighting in correct buffer'] = function(
   child.cmd('vsplit current')
   set_lines({ '(bbb)' })
   set_cursor(1, 2)
-  sleep(0.5 * test_duration)
+  sleep(0.5 * test_duration + small_time)
   activate_highlighting()
 
   -- Highlighting should be removed only in previous buffer
   child.expect_screenshot()
-  sleep(0.5 * test_duration + 2)
+  sleep(0.5 * test_duration + small_time)
   child.expect_screenshot()
 end
 
@@ -1572,11 +1611,11 @@ T['Highlight surrounding']['removes highlighting per line'] = function()
   child.expect_screenshot()
 
   -- Should highlight only in second line
-  sleep(half_duration + 1)
+  sleep(half_duration + small_time)
   child.expect_screenshot()
 
   -- Should stop highlighting at all
-  sleep(half_duration + 1)
+  sleep(half_duration + small_time)
   child.expect_screenshot()
 end
 
@@ -1605,7 +1644,7 @@ T['Highlight surrounding']['respects `vim.{g,b}.minisurround_disable`'] = new_se
     set_lines({ '(aaa)', 'bbb' })
     set_cursor(1, 2)
     type_keys('sh', ')')
-    poke_eventloop()
+    child.poke_eventloop()
 
     -- Shouldn't highlight anything (instead moves cursor with `)` motion)
     child.expect_screenshot()
@@ -1615,18 +1654,18 @@ T['Highlight surrounding']['respects `vim.{g,b}.minisurround_disable`'] = new_se
 T['Highlight surrounding']['respects `vim.b.minisurround_config`'] = function()
   child.b.minisurround_config = {
     custom_surroundings = { ['<'] = { input = { '>().-()<' } } },
-    highlight_duration = 50,
+    highlight_duration = 5 * small_time,
   }
   validate_edit({ '>aaa<' }, { 1, 2 }, { 'aaa' }, { 1, 0 }, type_keys, 'sd', '<')
 
   set_lines({ '>aaa<', 'bbb' })
   set_cursor(1, 2)
   type_keys('sh', '<')
-  poke_eventloop()
+  child.poke_eventloop()
   child.expect_screenshot()
 
   -- Should stop highlighting after duration from local config
-  sleep(50)
+  sleep(5 * small_time + small_time)
   child.expect_screenshot()
 end
 
@@ -2073,8 +2112,9 @@ T['Builtin']['Tag']['does not work in some cases'] = function()
   has_message_about_not_found('t')
 end
 
-T['Builtin']['Tag']['detects tag with the same name'] =
-  function() validate_edit({ '<x><y>a</x></y>' }, { 1, 1 }, { '_<y>a_</y>' }, { 1, 1 }, type_keys, 'sr', 't', '_') end
+T['Builtin']['Tag']['detects tag with the same name'] = function()
+  validate_edit({ '<x><y>a</x></y>' }, { 1, 1 }, { '_<y>a_</y>' }, { 1, 1 }, type_keys, 'sr', 't', '_')
+end
 
 T['Builtin']['Tag']['allows extra symbols in opening tag on input'] = function()
   validate_edit({ '<x bbb cc_dd!>aaa</x>' }, { 1, 15 }, { '_aaa_' }, { 1, 1 }, type_keys, 'sr', 't', '_')

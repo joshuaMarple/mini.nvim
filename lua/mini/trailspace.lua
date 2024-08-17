@@ -13,7 +13,7 @@
 ---
 --- - Trim all trailing empty lines with |MiniTrailspace.trim_last_lines()|.
 ---
---- # Setup~
+--- # Setup ~
 ---
 --- This module needs a setup with `require('mini.trailspace').setup({})`
 --- (replace `{}` with your `config` table). It will create global Lua table
@@ -26,13 +26,13 @@
 --- `vim.b.minitrailspace_config` which should have same structure as
 --- `MiniTrailspace.config`. See |mini.nvim-buffer-local-config| for more details.
 ---
---- # Highlight groups~
+--- # Highlight groups ~
 ---
 --- * `MiniTrailspace` - highlight group for trailing space.
 ---
 --- To change any highlight group, modify it directly with |:highlight|.
 ---
---- # Disabling~
+--- # Disabling ~
 ---
 --- To disable, set `vim.g.minitrailspace_disable` (globally) or
 --- `vim.b.minitrailspace_disable` (for a buffer) to `true`. Considering high
@@ -50,17 +50,12 @@ local H = {}
 ---
 ---@param config table|nil Module config table. See |MiniTrailspace.config|.
 ---
----@usage `require('mini.trailspace').setup({})` (replace `{}` with your `config` table)
+---@usage >lua
+---   require('mini.trailspace').setup() -- use default config
+---   -- OR
+---   require('mini.trailspace').setup({}) -- replace {} with your config table
+--- <
 MiniTrailspace.setup = function(config)
-  -- TODO: Remove after Neovim<=0.6 support is dropped
-  if vim.fn.has('nvim-0.7') == 0 then
-    vim.notify(
-      '(mini.trailspace) Neovim<0.7 is soft deprecated (module works but not supported).'
-        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
-        .. ' Please update your Neovim version.'
-    )
-  end
-
   -- Export module
   _G.MiniTrailspace = MiniTrailspace
 
@@ -70,33 +65,11 @@ MiniTrailspace.setup = function(config)
   -- Apply config
   H.apply_config(config)
 
-  -- Module behavior
-  -- NOTE: Respecting both `WinEnter` and `BufEnter` seems to be useful to
-  -- account of different order of handling buffer opening in new window.
-  -- Notable example: 'nvim-tree' at commit a1600e5.
-  vim.api.nvim_exec(
-    [[augroup MiniTrailspace
-        au!
-        au WinEnter,BufEnter,InsertLeave * lua MiniTrailspace.highlight()
-        au WinLeave,BufLeave,InsertEnter * lua MiniTrailspace.unhighlight()
-      augroup END]],
-    false
-  )
+  -- Define behavior
+  H.create_autocommands(config)
 
-  if config.only_in_normal_buffers then
-    -- Add tracking of 'buftype' changing because it can be set after events on
-    -- which highlighting is done. If not done, highlighting appears but
-    -- disappears if buffer is reentered.
-    vim.api.nvim_exec(
-      [[augroup MiniTrailspace
-          au OptionSet buftype lua MiniTrailspace.track_normal_buffer()
-        augroup END]],
-      false
-    )
-  end
-
-  -- Create highlighting
-  vim.api.nvim_exec('hi default link MiniTrailspace Error', false)
+  -- Create default highlighting
+  H.create_default_hl()
 
   -- Initialize highlight (usually takes effect during startup)
   vim.defer_fn(MiniTrailspace.highlight, 0)
@@ -154,10 +127,55 @@ MiniTrailspace.trim_last_lines = function()
   if last_nonblank < n_lines then vim.api.nvim_buf_set_lines(0, last_nonblank, n_lines, true, {}) end
 end
 
---- Track normal buffer
----
---- Designed to be used with |autocmd|. No need to use it directly.
-MiniTrailspace.track_normal_buffer = function()
+-- Helper data ================================================================
+-- Module default config
+H.default_config = vim.deepcopy(MiniTrailspace.config)
+
+-- Helper functionality =======================================================
+-- Settings -------------------------------------------------------------------
+H.setup_config = function(config)
+  -- General idea: if some table elements are not present in user-supplied
+  -- `config`, take them from default config
+  vim.validate({ config = { config, 'table', true } })
+  config = vim.tbl_deep_extend('force', vim.deepcopy(H.default_config), config or {})
+
+  vim.validate({ only_in_normal_buffers = { config.only_in_normal_buffers, 'boolean' } })
+
+  return config
+end
+
+H.apply_config = function(config) MiniTrailspace.config = config end
+
+H.create_autocommands = function(config)
+  local augroup = vim.api.nvim_create_augroup('MiniTrailspace', {})
+
+  local au = function(event, pattern, callback, desc)
+    vim.api.nvim_create_autocmd(event, { group = augroup, pattern = pattern, callback = callback, desc = desc })
+  end
+
+  -- NOTE: Respecting both `WinEnter` and `BufEnter` seems to be useful to
+  -- account of different order of handling buffer opening in new window.
+  -- Notable example: 'nvim-tree' at commit a1600e5.
+  au({ 'WinEnter', 'BufEnter', 'InsertLeave' }, '*', MiniTrailspace.highlight, 'Highlight')
+  au({ 'WinLeave', 'BufLeave', 'InsertEnter' }, '*', MiniTrailspace.unhighlight, 'Unhighlight')
+
+  if config.only_in_normal_buffers then
+    -- Add tracking of 'buftype' changing because it can be set after events on
+    -- which highlighting is done. If not done, highlighting appears but
+    -- disappears if buffer is reentered.
+    au('OptionSet', 'buftype', H.track_normal_buffer, 'Track normal buffer')
+  end
+end
+
+H.create_default_hl = function() vim.api.nvim_set_hl(0, 'MiniTrailspace', { default = true, link = 'Error' }) end
+
+H.is_disabled = function() return vim.g.minitrailspace_disable == true or vim.b.minitrailspace_disable == true end
+
+H.get_config = function(config)
+  return vim.tbl_deep_extend('force', MiniTrailspace.config, vim.b.minitrailspace_config or {}, config or {})
+end
+
+H.track_normal_buffer = function()
   if not H.get_config().only_in_normal_buffers then return end
 
   -- This should be used with 'OptionSet' event for 'buftype' option
@@ -169,32 +187,7 @@ MiniTrailspace.track_normal_buffer = function()
   end
 end
 
--- Helper data ================================================================
--- Module default config
-H.default_config = MiniTrailspace.config
-
--- Helper functionality =======================================================
--- Settings -------------------------------------------------------------------
-H.setup_config = function(config)
-  -- General idea: if some table elements are not present in user-supplied
-  -- `config`, take them from default config
-  vim.validate({ config = { config, 'table', true } })
-  config = vim.tbl_deep_extend('force', H.default_config, config or {})
-
-  vim.validate({ only_in_normal_buffers = { config.only_in_normal_buffers, 'boolean' } })
-
-  return config
-end
-
-H.apply_config = function(config) MiniTrailspace.config = config end
-
-H.is_disabled = function() return vim.g.minitrailspace_disable == true or vim.b.minitrailspace_disable == true end
-
-H.get_config = function(config)
-  return vim.tbl_deep_extend('force', MiniTrailspace.config, vim.b.minitrailspace_config or {}, config or {})
-end
-
-H.is_buffer_normal = function(buf_id) return vim.api.nvim_buf_get_option(buf_id or 0, 'buftype') == '' end
+H.is_buffer_normal = function(buf_id) return vim.bo[buf_id or 0].buftype == '' end
 
 H.get_match_id = function()
   -- NOTE: this can be replaced with more efficient custom tracking of id per

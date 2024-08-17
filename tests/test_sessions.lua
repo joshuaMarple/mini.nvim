@@ -10,10 +10,14 @@ local child = helpers.new_child_neovim()
 local expect, eq = helpers.expect, helpers.expect.equality
 local new_set = MiniTest.new_set
 
-local path_sep = package.config:sub(1, 1)
-local project_root = vim.fn.getcwd()
+local fs_normalize = vim.fs.normalize
+if vim.fn.has('nvim-0.9') == 0 then
+  fs_normalize = function(...) return vim.fs.normalize(...):gsub('(.)/+$', '%1') end
+end
+
+local project_root = fs_normalize(vim.fn.getcwd())
 local empty_dir_relpath = 'tests/dir-sessions/empty'
-local empty_dir_path = vim.fn.fnamemodify(empty_dir_relpath, ':p')
+local empty_dir_path = project_root .. '/' .. empty_dir_relpath
 
 -- Helpers with child processes
 --stylua: ignore start
@@ -22,10 +26,9 @@ local unload_module = function() child.mini_unload('sessions') end
 local reload_module = function(config) unload_module(); load_module(config) end
 local reload_from_strconfig = function(strconfig) unload_module(); child.mini_load_strconfig('sessions', strconfig) end
 local set_lines = function(...) return child.set_lines(...) end
-local make_path = function(...) local res = table.concat({...}, path_sep):gsub(path_sep .. path_sep, path_sep); return res end
+local make_path = function(...) return fs_normalize(table.concat({...}, '/')) end
 local cd = function(...) child.cmd('cd ' .. make_path(...)) end
-local poke_eventloop = function() child.api.nvim_eval('1') end
-local sleep = function(ms) vim.loop.sleep(ms); poke_eventloop() end
+local sleep = function(ms) helpers.sleep(ms, child) end
 --stylua: ignore end
 
 -- Make helpers
@@ -47,8 +50,9 @@ end
 
 local get_latest_message = function() return child.cmd_capture('1messages') end
 
-local get_buf_names =
-  function() return child.lua_get('vim.tbl_map(function(x) return vim.fn.bufname(x) end, vim.api.nvim_list_bufs())') end
+local get_buf_names = function()
+  return child.lua_get('vim.tbl_map(function(x) return vim.fn.bufname(x) end, vim.api.nvim_list_bufs())')
+end
 
 local compare_buffer_names = function(x, y)
   -- Don't test exact equality because different Neovim versions create
@@ -128,8 +132,12 @@ local validate_executed_hook = function(pre_post, action, value)
   eq(vim.tbl_map(function(x) return type(data[x]) end, keys), { 'number', 'string', 'string', 'string' })
 end
 
+-- Time constants
+local one_second_delay = 1000
+local small_time = helpers.get_time_const(10)
+
 -- Output test set ============================================================
-T = new_set({
+local T = new_set({
   hooks = {
     pre_case = function()
       child.setup()
@@ -179,7 +187,7 @@ T['setup()']['creates `config` field'] = function()
 
   expect_config('autoread', false)
   expect_config('autowrite', true)
-  expect_config('directory', ('%s%ssession'):format(child.fn.stdpath('data'), path_sep))
+  expect_config('directory', child.fn.stdpath('data') .. '/session')
   expect_config('file', 'Session.vim')
   expect_config('force', { read = false, write = true, delete = false })
   expect_config('hooks.pre', { read = nil, write = nil, delete = nil })
@@ -261,7 +269,7 @@ T['setup()']['prefers local session file over global'] = function()
 
   reload_module({ directory = 'global' })
   local detected = child.lua_get('MiniSessions.detected')
-  local expected_path = vim.fn.fnamemodify('.', ':p') .. 'tests/dir-sessions/Session.vim'
+  local expected_path = project_root .. '/tests/dir-sessions/Session.vim'
 
   eq(detected['Session.vim'].path, expected_path)
 end
@@ -309,8 +317,10 @@ T['detected']['is present'] = function()
   eq(child.lua_get('type(MiniSessions.detected)'), 'table')
 end
 
-T['detected']['is an empty table if no sessions are detected'] =
-  function() eq(child.lua_get('MiniSessions.detected'), {}) end
+T['detected']['is an empty table if no sessions are detected'] = function()
+  reload_module({ directory = 'global' })
+  eq(child.lua_get('MiniSessions.detected'), {})
+end
 
 T['read()'] = new_set()
 
@@ -323,7 +333,8 @@ end
 T['read()']['works with no detected sessions'] = function()
   reload_module({ directory = '', file = '' })
   eq(child.lua_get('MiniSessions.detected'), {})
-  expect.error(function() child.lua('MiniSessions.read()') end, '%(mini%.sessions%) There is no detected sessions')
+  expect.no_error(function() child.lua('MiniSessions.read()') end)
+  expect.match(get_latest_message(), '%(mini%.sessions%) There is no detected sessions')
 end
 
 T['read()']['accepts only name of detected session'] = function()
@@ -398,7 +409,7 @@ T['read()']['uses by default local session'] = function()
 end
 
 T['read()']['uses by default latest global session'] = function()
-  local session_dir = populate_sessions(1000)
+  local session_dir = populate_sessions(one_second_delay + small_time)
 
   reload_module({ autowrite = false, directory = session_dir })
   child.lua('MiniSessions.read()')
@@ -423,6 +434,74 @@ T['read()']['respects `force` from `config` and `opts` argument'] = function()
   validate_no_session_loaded()
 end
 
+T['read()']['does not stop on source error'] = function()
+  reload_module({ autowrite = false, directory = 'tests/dir-sessions/global' })
+
+  local session_file = 'tests/dir-sessions/global/session_with_error'
+  local folded_file = 'tests/dir-sessions/folded_file'
+  local extra_file = 'tests/dir-sessions/extra_file'
+  MiniTest.finally(function()
+    vim.fn.delete(session_file)
+    vim.fn.delete(folded_file)
+    vim.fn.delete(extra_file)
+  end)
+
+  -- Create buffer with non-trivial folds to imitate "No folds found" error
+  child.o.foldmethod = 'indent'
+  child.cmd('edit ' .. folded_file)
+  set_lines({ 'a', '\ta', '\ta', 'a', '\ta', '\ta' })
+  child.cmd('write')
+
+  child.cmd('normal! zM')
+  child.cmd('2 | normal! zo')
+
+  -- Create another buffer to check correct session read
+  child.cmd('edit ' .. extra_file)
+  set_lines({ 'This should be preserved in session' })
+  child.cmd('write')
+
+  -- Write session and make sure it contains call to open folds
+  child.cmd('edit ' .. folded_file)
+  child.cmd('mksession ' .. session_file)
+
+  local session_lines = table.concat(child.fn.readfile(session_file), '\n')
+  expect.match(session_lines, 'normal! zo')
+
+  -- Modify file so that no folds will be found by session file
+  child.fn.writefile({ 'No folds in this file' }, folded_file)
+
+  -- Cleanly read session which should open foldless file without errors
+  child.restart()
+  load_module({ autowrite = false, directory = 'tests/dir-sessions/global' })
+
+  expect.no_error(function() child.lua([[MiniSessions.read('session_with_error')]]) end)
+
+  local buffers = child.api.nvim_list_bufs()
+  eq(#buffers, 2)
+
+  child.api.nvim_set_current_buf(buffers[1])
+  local buf_name_1 = fs_normalize(child.api.nvim_buf_get_name(0))
+  eq(vim.endswith(buf_name_1, '/' .. folded_file), true)
+  eq(child.api.nvim_buf_get_lines(0, 0, -1, true), { 'No folds in this file' })
+
+  child.api.nvim_set_current_buf(buffers[2])
+  local buf_name_2 = fs_normalize(child.api.nvim_buf_get_name(0))
+  eq(vim.endswith(buf_name_2, '/' .. extra_file), true)
+  eq(child.api.nvim_buf_get_lines(0, 0, -1, true), { 'This should be preserved in session' })
+end
+
+T['read()']['writes current session prior to reading a new one'] = function()
+  local cur_session = project_root .. '/tests/dir-sessions/global/current-session'
+  MiniTest.finally(function() child.fn.delete(cur_session) end)
+
+  reload_module({ autowrite = false, directory = 'tests/dir-sessions/global' })
+  child.v.this_session = cur_session
+
+  eq(child.fn.filereadable(cur_session), 0)
+  child.lua([[MiniSessions.read('session1')]])
+  eq(child.fn.filereadable(cur_session), 1)
+end
+
 T['read()']['respects hooks from `config` and `opts` argument'] = new_set({
   parametrize = { { 'pre' }, { 'post' } },
 }, {
@@ -438,6 +517,8 @@ T['read()']['respects hooks from `config` and `opts` argument'] = new_set({
 
     validate_session_loaded('global/session1')
     validate_executed_hook(pre_post, 'read', 'config')
+    -- - Make sure that current session is not written
+    child.v.this_session = ''
 
     -- Should prefer `opts` over `config`
     local hook_string_opts = make_hook_string(pre_post, 'read', 'opts')
@@ -455,6 +536,8 @@ T['read()']['respects `verbose` from `config` and `opts` argument'] = function()
   child.lua([[MiniSessions.read('session1')]])
   validate_session_loaded('global/session1')
   expect.match(get_latest_message(), '%(mini%.sessions%) Read session.*session1')
+  -- - Make sure that current session is not written
+  child.v.this_session = ''
 
   -- Should prefer `opts` over `config`
   reset_session_indicator()
@@ -515,11 +598,11 @@ T['write()']['updates `MiniSessions.detected` with new session'] = function()
 end
 
 T['write()']['updates `MiniSessions.detected` for present session'] = function()
-  local session_dir = populate_sessions(1000)
+  local session_dir = populate_sessions(one_second_delay + small_time)
   reload_module({ directory = session_dir })
 
   child.lua([[MiniSessions.read('session_a')]])
-  sleep(1000)
+  sleep(one_second_delay + small_time)
   child.lua([[MiniSessions.write('session_a')]])
 
   local detected = child.lua_get('MiniSessions.detected')
@@ -866,13 +949,13 @@ T['select()']['makes detected sessions up to date'] = function()
 
   -- Remove 'session_a' manually which should be shown in `select()` output
   local directory = child.lua_get('MiniSessions.config.directory')
-  child.fn.delete(make_path(directory, 'session_a'))
+  child.fn.delete(make_path(directory, 'session_a'), 'rf')
 
   child.lua('MiniSessions.select()')
   eq(child.lua_get('_G.ui_select_args[1]'), { 'Session.vim', 'session_b' })
 end
 
-T['select()']['verifies presense of `vim.ui` and `vim.ui.select`'] = function()
+T['select()']['verifies presence of `vim.ui` and `vim.ui.select`'] = function()
   child.lua('vim.ui = 1')
   expect.error(function() child.lua('MiniSessions.select()') end, '%(mini%.sessions%).*vim%.ui')
 
@@ -910,7 +993,7 @@ end
 T['get_latest()'] = new_set()
 
 T['get_latest()']['works'] = function()
-  local dir = populate_sessions(1000)
+  local dir = populate_sessions(one_second_delay + small_time)
   reload_module({ directory = dir })
   eq(child.lua_get('MiniSessions.get_latest()'), 'session_b')
 end
@@ -930,22 +1013,26 @@ end
 
 T['Autoreading sessions']['does not autoread if Neovim started to show something'] = function()
   local init_autoread = 'tests/dir-sessions/init-files/autoread.lua'
+  local validate = function(...)
+    child.restart({ '-u', init_autoread, ... })
+    validate_no_session_loaded()
+  end
 
-  -- Current buffer has any lines (something opened explicitly)
-  child.restart({ '-u', init_autoread, '-c', [[call setline(1, 'a')]] })
-  validate_no_session_loaded()
+  -- There are files in arguments (like `nvim foo.txt` with new file).
+  validate('new-file.txt')
 
   -- Several buffers are listed (like session with placeholder buffers)
-  child.restart({ '-u', init_autoread, '-c', 'e foo | set buflisted | e bar | set buflisted' })
-  validate_no_session_loaded()
+  validate('-c', 'e foo | set buflisted | e bar | set buflisted')
 
   -- Unlisted buffers (like from `nvim-tree`) don't affect decision
   child.restart({ '-u', init_autoread, '-c', 'e foo | set nobuflisted | e bar | set buflisted' })
   validate_session_loaded('local/Session.vim')
 
-  -- There are files in arguments (like `nvim foo.txt` with new file).
-  child.restart({ '-u', init_autoread, 'new-file.txt' })
-  validate_no_session_loaded()
+  -- Current buffer is meant to show something else
+  validate('-c', 'set filetype=text')
+
+  -- Current buffer has any lines (something opened explicitly)
+  validate('-c', [[call setline(1, 'a')]])
 end
 
 T['Autowriting sessions'] = new_set()

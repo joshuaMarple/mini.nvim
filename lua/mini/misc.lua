@@ -14,6 +14,9 @@
 ---
 --- - |MiniMisc.setup_auto_root()| to set up automated change of current directory.
 ---
+--- - |MiniMisc.setup_termbg_sync()| to set up terminal background synchronization
+---   (removes possible "frame" around current Neovim instance).
+---
 --- - |MiniMisc.setup_restore_cursor()| to set up automated restoration of
 ---   cursor position on file reopen.
 ---
@@ -28,7 +31,7 @@
 ---
 --- - And more.
 ---
---- # Setup~
+--- # Setup ~
 ---
 --- This module doesn't need setup, but it can be done to improve usability.
 --- Setup with `require('mini.misc').setup({})` (replace `{}` with your
@@ -48,17 +51,12 @@ local H = {}
 ---
 ---@param config table|nil Module config table. See |MiniMisc.config|.
 ---
----@usage `require('mini.misc').setup({})` (replace `{}` with your `config` table)
+---@usage >lua
+---   require('mini.misc').setup() -- use default config
+---   -- OR
+---   require('mini.misc').setup({}) -- replace {} with your config table
+--- <
 MiniMisc.setup = function(config)
-  -- TODO: Remove after Neovim<=0.6 support is dropped
-  if vim.fn.has('nvim-0.7') == 0 then
-    vim.notify(
-      '(mini.misc) Neovim<0.7 is soft deprecated (module works but not supported).'
-        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
-        .. ' Please update your Neovim version.'
-    )
-  end
-
   -- Export module
   _G.MiniMisc = MiniMisc
 
@@ -86,16 +84,16 @@ MiniMisc.config = {
 ---@param n number|nil Number of times to execute `f(...)`. Default: 1.
 ---@param ... any Arguments when calling `f`.
 ---
----@return ... Table with durations (in seconds; up to microseconds) and
+---@return ... Table with durations (in seconds; up to nanoseconds) and
 ---   output of (last) function execution.
 MiniMisc.bench_time = function(f, n, ...)
   n = n or 1
   local durations, output = {}, nil
   for _ = 1, n do
-    local start_sec, start_usec = vim.loop.gettimeofday()
+    local start_time = vim.loop.hrtime()
     output = f(...)
-    local end_sec, end_usec = vim.loop.gettimeofday()
-    table.insert(durations, (end_sec - start_sec) + 0.000001 * (end_usec - start_usec))
+    local end_time = vim.loop.hrtime()
+    table.insert(durations, 0.000000001 * (end_time - start_time))
   end
 
   return durations, output
@@ -160,10 +158,10 @@ end
 
 H.default_text_width = function(win_id)
   local buf = vim.api.nvim_win_get_buf(win_id)
-  local textwidth = vim.api.nvim_buf_get_option(buf, 'textwidth')
+  local textwidth = vim.bo[buf].textwidth
   textwidth = (textwidth == 0) and math.min(vim.o.columns, 79) or textwidth
 
-  local colorcolumn = vim.api.nvim_win_get_option(win_id, 'colorcolumn')
+  local colorcolumn = vim.wo[win_id].colorcolumn
   if colorcolumn ~= '' then
     local cc = vim.split(colorcolumn, ',')[1]
     local is_cc_relative = vim.tbl_contains({ '-', '+' }, cc:sub(1, 1))
@@ -186,32 +184,28 @@ end
 ---   to it (using |chdir()|).
 --- - Resets |autochdir| to `false`.
 ---
---- Note: requires |vim.fs| module (present in Neovim>=0.8).
+---@param names table|function|nil Forwarded to |MiniMisc.find_root()|.
+---@param fallback function|nil Forwarded to |MiniMisc.find_root()|.
 ---
----@param names table|function|nil Array of file names or a callable used to
----   identify a root directory. Forwarded to |MiniMisc.find_root()|.
----   Default: `{ '.git', 'Makefile' }`.
----
----@usage >
+---@usage >lua
 ---   require('mini.misc').setup()
 ---   MiniMisc.setup_auto_root()
-MiniMisc.setup_auto_root = function(names)
-  if vim.fs == nil then
-    vim.notify('(mini.misc) `setup_auto_root()` requires `vim.fs` module (present in Neovim>=0.8).')
-    return
-  end
-
+--- <
+MiniMisc.setup_auto_root = function(names, fallback)
   names = names or { '.git', 'Makefile' }
   if not (H.is_array_of(names, H.is_string) or vim.is_callable(names)) then
     H.error('Argument `names` of `setup_auto_root()` should be array of string file names or a callable.')
   end
 
+  fallback = fallback or function() return nil end
+  if not vim.is_callable(fallback) then H.error('Argument `fallback` of `setup_auto_root()` should be callable.') end
+
   -- Disable conflicting option
   vim.o.autochdir = false
 
   -- Create autocommand
-  local set_root = function()
-    local root = MiniMisc.find_root(0, names)
+  local set_root = function(data)
+    local root = MiniMisc.find_root(data.buf, names, fallback)
     if root == nil then return end
     vim.fn.chdir(root)
   end
@@ -229,10 +223,9 @@ end
 ---
 --- Root directory is a directory containing at least one of pre-defined files.
 --- It is searched using |vim.fn.find()| with `upward = true` starting from
---- directory of current buffer file until first occurence of root file(s).
+--- directory of current buffer file until first occurrence of root file(s).
 ---
 --- Notes:
---- - Requires |vim.fs| module (present in Neovim>=0.8).
 --- - Uses directory path caching to speed up computations. This means that no
 ---   changes in root directory will be detected after directory path was already
 ---   used in this function. Reload Neovim to account for that.
@@ -242,14 +235,19 @@ end
 ---@param names table|function|nil Array of file names or a callable used to
 ---   identify a root directory. Forwarded to |vim.fs.find()|.
 ---   Default: `{ '.git', 'Makefile' }`.
-MiniMisc.find_root = function(buf_id, names)
+---@param fallback function|nil Callable fallback to use if no root is found
+---   with |vim.fs.find()|. Will be called with a buffer path and should return
+---   a valid directory path.
+MiniMisc.find_root = function(buf_id, names, fallback)
   buf_id = buf_id or 0
   names = names or { '.git', 'Makefile' }
+  fallback = fallback or function() return nil end
 
   if type(buf_id) ~= 'number' then H.error('Argument `buf_id` of `find_root()` should be number.') end
   if not (H.is_array_of(names, H.is_string) or vim.is_callable(names)) then
     H.error('Argument `names` of `find_root()` should be array of string file names or a callable.')
   end
+  if not vim.is_callable(fallback) then H.error('Argument `fallback` of `find_root()` should be callable.') end
 
   -- Compute directory to start search from. NOTEs on why not using file path:
   -- - This has better performance because `vim.fs.find()` is called less.
@@ -258,24 +256,96 @@ MiniMisc.find_root = function(buf_id, names)
   --   should work for detecting buffer directory as root.
   local path = vim.api.nvim_buf_get_name(buf_id)
   if path == '' then return end
-  path = vim.fs.dirname(path)
+  local dir_path = vim.fs.dirname(path)
 
   -- Try using cache
-  local res = H.root_cache[path]
+  local res = H.root_cache[dir_path]
   if res ~= nil then return res end
 
   -- Find root
-  local root_file = vim.fs.find(names, { path = path, upward = true })[1]
-  if root_file == nil then return end
+  local root_file = vim.fs.find(names, { path = dir_path, upward = true })[1]
+  if root_file ~= nil then
+    res = vim.fs.dirname(root_file)
+  else
+    res = fallback(path)
+  end
 
-  -- Use absolute path and cache result
-  res = vim.fn.fnamemodify(vim.fs.dirname(root_file), ':p')
-  H.root_cache[path] = res
+  -- Use absolute path to an existing directory
+  if type(res) ~= 'string' then return end
+  res = H.fs_normalize(vim.fn.fnamemodify(res, ':p'))
+  if vim.fn.isdirectory(res) == 0 then return end
+
+  -- Cache result per directory path
+  H.root_cache[dir_path] = res
 
   return res
 end
 
 H.root_cache = {}
+
+--- Set up terminal background synchronization
+---
+--- What it does:
+--- - Checks if terminal emulator supports OSC 11 control sequence. Stops if not.
+--- - Creates |UIEnter| and |ColorScheme| autocommands which change terminal
+---   background to have same color as |guibg| of |hl-Normal|.
+--- - Creates |UILeave| autocommand which sets terminal background back to the
+---   color at the time this function was called first time in current session.
+--- - Synchronizes background immediately to allow not depend on loading order.
+---
+--- Primary use case is to remove possible "frame" around current Neovim instance
+--- which appears if Neovim's |hl-Normal| background color differs from what is
+--- used by terminal emulator itself.
+---
+--- Make sure to call it only during interactive session in terminal emulator.
+MiniMisc.setup_termbg_sync = function()
+  local augroup = vim.api.nvim_create_augroup('MiniMiscTermbgSync', { clear = true })
+  local f = function(args)
+    local ok, bg_init = pcall(H.parse_osc11, args.data)
+    if not (ok and type(bg_init) == 'string') then
+      H.notify('`setup_termbg_sync()` could not parse terminal emulator response ' .. vim.inspect(args.data), 'WARN')
+      return
+    end
+
+    -- Set up sync
+    local sync = function()
+      local normal = vim.api.nvim_get_hl_by_name('Normal', true)
+      if normal.background == nil then return end
+      io.write(string.format('\027]11;#%06x\007', normal.background))
+    end
+    vim.api.nvim_create_autocmd({ 'UIEnter', 'ColorScheme' }, { group = augroup, callback = sync })
+
+    -- Set up reset to the color returned from the very first call
+    H.termbg_init = H.termbg_init or bg_init
+    local reset = function() io.write('\027]11;' .. H.termbg_init .. '\007') end
+    vim.api.nvim_create_autocmd({ 'UILeave' }, { group = augroup, callback = reset })
+
+    -- Sync immediately
+    sync()
+  end
+
+  -- Ask about current background color and process the response
+  local id = vim.api.nvim_create_autocmd('TermResponse', { group = augroup, callback = f, once = true, nested = true })
+  io.write('\027]11;?\007')
+  vim.defer_fn(function()
+    local ok = pcall(vim.api.nvim_del_autocmd, id)
+    if ok then H.notify('`setup_termbg_sync()` did not get response from terminal emulator', 'WARN') end
+  end, 1000)
+end
+
+-- Source: 'runtime/lua/vim/_defaults.lua' in Neovim source
+H.parse_osc11 = function(x)
+  local r, g, b = x:match('^\027%]11;rgb:(%x+)/(%x+)/(%x+)$')
+  if not (r and g and b) then
+    local a
+    r, g, b, a = x:match('^\027%]11;rgba:(%x+)/(%x+)/(%x+)/(%x+)$')
+    if not (a and a:len() <= 4) then return end
+  end
+  if not (r and g and b) then return end
+  if not (r:len() <= 4 and g:len() <= 4 and b:len() <= 4) then return end
+  local parse_osc_hex = function(c) return c:len() == 1 and (c .. c) or c:sub(1, 2) end
+  return '#' .. parse_osc_hex(r) .. parse_osc_hex(g) .. parse_osc_hex(b)
+end
 
 --- Restore cursor position on file open
 ---
@@ -293,8 +363,9 @@ H.root_cache = {}
 ---   - <ignore_filetype> - Array with file types to be ignored (see 'filetype').
 ---     Default: `{ "gitcommit", "gitrebase" }`.
 ---
----@usage >
+---@usage >lua
 ---   require('mini.misc').setup_restore_cursor()
+--- <
 MiniMisc.setup_restore_cursor = function(opts)
   opts = opts or {}
 
@@ -306,19 +377,21 @@ MiniMisc.setup_restore_cursor = function(opts)
   if opts.center == nil then opts.center = true end
   if type(opts.center) ~= 'boolean' then H.error('In `setup_restore_cursor()` `opts.center` should be a boolean.') end
 
-  -- TODO: use `nvim_create_autocmd()` after Neovim<=0.6 support is dropped
-  local au_command = string.format(
-    [[augroup MiniMiscRestoreCursor
-      au!
-      au BufReadPre * au FileType <buffer> ++once lua require('mini.misc').restore_cursor(%s)
-    augroup END]],
-    vim.inspect(opts, { newline = ' ', indent = '' })
-  )
-  vim.api.nvim_exec(au_command, false)
+  -- Create autocommand which runs once on `FileType` for every new buffer
+  local augroup = vim.api.nvim_create_augroup('MiniMiscRestoreCursor', {})
+  vim.api.nvim_create_autocmd('BufReadPre', {
+    group = augroup,
+    callback = function(data)
+      vim.api.nvim_create_autocmd('FileType', {
+        buffer = data.buf,
+        once = true,
+        callback = function() H.restore_cursor(opts) end,
+      })
+    end,
+  })
 end
 
--- TODO: Make local once Lua autocmd is used inside `setup_restore_cursor()`
-MiniMisc.restore_cursor = function(opts)
+H.restore_cursor = function(opts)
   -- Stop if not a normal buffer
   if vim.bo.buftype ~= '' then return end
 
@@ -453,9 +526,11 @@ end
 --- and "second-level" comments with '----'. With nested comment leader second
 --- type can be formatted with `gq` in the same way as first one.
 ---
---- Recommended usage is with |autocmd|:
---- `autocmd BufEnter * lua pcall(require('mini.misc').use_nested_comments)`
+--- Recommended usage is with |autocmd|: >lua
 ---
+---   local use_nested_comments = function() MiniMisc.use_nested_comments() end
+---   vim.api.nvim_create_autocmd('BufEnter', { callback = use_nested_comments })
+--- <
 --- Note: for most filetypes 'commentstring' option is added only when buffer
 --- with this filetype is entered, so using non-current `buf_id` can not lead
 --- to desired effect.
@@ -465,7 +540,7 @@ end
 MiniMisc.use_nested_comments = function(buf_id)
   buf_id = buf_id or 0
 
-  local commentstring = vim.api.nvim_buf_get_option(buf_id, 'commentstring')
+  local commentstring = vim.bo[buf_id].commentstring
   if commentstring == '' then return end
 
   -- Extract raw comment leader from 'commentstring' option
@@ -477,7 +552,7 @@ MiniMisc.use_nested_comments = function(buf_id)
   -- Get comment leader by removing whitespace
   local leader = vim.trim(comment_parts[1])
 
-  local comments = vim.api.nvim_buf_get_option(buf_id, 'comments')
+  local comments = vim.bo[buf_id].comments
   local new_comments = string.format('n:%s,%s', leader, comments)
   vim.api.nvim_buf_set_option(buf_id, 'comments', new_comments)
 end
@@ -501,14 +576,14 @@ MiniMisc.zoom = function(buf_id, config)
     local default_config = { relative = 'editor', row = 0, col = 0, width = 1000, height = 1000 }
     config = vim.tbl_deep_extend('force', default_config, config or {})
     H.zoom_winid = vim.api.nvim_open_win(buf_id, true, config)
-    vim.cmd('setlocal winblend=0')
+    vim.wo.winblend = 0
     vim.cmd('normal! zz')
   end
 end
 
 -- Helper data ================================================================
 -- Module default config
-H.default_config = MiniMisc.config
+H.default_config = vim.deepcopy(MiniMisc.config)
 
 -- Window identifier of current zoom (for `zoom()`)
 H.zoom_winid = nil
@@ -519,7 +594,7 @@ H.setup_config = function(config)
   -- General idea: if some table elements are not present in user-supplied
   -- `config`, take them from default config
   vim.validate({ config = { config, 'table', true } })
-  config = vim.tbl_deep_extend('force', H.default_config, config or {})
+  config = vim.tbl_deep_extend('force', vim.deepcopy(H.default_config), config or {})
 
   vim.validate({
     make_global = {
@@ -548,10 +623,12 @@ H.apply_config = function(config)
 end
 
 -- Utilities ------------------------------------------------------------------
-H.error = function(msg) error(string.format('(mini.misc) %s', msg)) end
+H.error = function(msg) error('(mini.misc) ' .. msg) end
+
+H.notify = function(msg, level) vim.notify('(mini.misc) ' .. msg, vim.log.levels[level]) end
 
 H.is_array_of = function(x, predicate)
-  if not vim.tbl_islist(x) then return false end
+  if not H.islist(x) then return false end
   for _, v in ipairs(x) do
     if not predicate(v) then return false end
   end
@@ -561,5 +638,13 @@ end
 H.is_number = function(x) return type(x) == 'number' end
 
 H.is_string = function(x) return type(x) == 'string' end
+
+H.fs_normalize = vim.fs.normalize
+if vim.fn.has('nvim-0.9') == 0 then
+  H.fs_normalize = function(...) return vim.fs.normalize(...):gsub('(.)/+$', '%1') end
+end
+
+-- TODO: Remove after compatibility with Neovim=0.9 is dropped
+H.islist = vim.fn.has('nvim-0.10') == 1 and vim.islist or vim.tbl_islist
 
 return MiniMisc

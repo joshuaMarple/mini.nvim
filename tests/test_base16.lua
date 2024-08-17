@@ -12,7 +12,10 @@ local reload_module = function(config) unload_module(); load_module(config) end
 --stylua: ignore end
 
 local validate_hl_group = function(group_name, target)
-  eq(child.cmd_capture('highlight ' .. group_name):gsub(' +', ' '), group_name .. ' xxx ' .. target)
+  expect.match(
+    child.cmd_capture('highlight ' .. group_name):gsub(' +', ' '),
+    group_name .. ' xxx .*' .. vim.pesc(target)
+  )
 end
 
 -- Data =======================================================================
@@ -55,10 +58,14 @@ local minischeme_use_cterm = {
 }
 
 -- Output test set ============================================================
-T = new_set({
+local T = new_set({
   hooks = {
     pre_case = function()
       child.setup()
+
+      -- Undo the color scheme applied for all tests
+      child.cmd('hi clear')
+
       load_module({ palette = minischeme_palette })
     end,
     post_once = child.stop,
@@ -114,13 +121,13 @@ T['setup()']['defines builtin highlight groups'] = function()
   validate_hl_group('Normal', ('guifg=%s guibg=%s'):format(p.base05, p.base00))
   validate_hl_group('Cursor', ('guifg=%s guibg=%s'):format(p.base00, p.base05))
 
-  validate_hl_group('Comment', ('ctermfg=14 guifg=%s'):format(p.base03))
-  validate_hl_group('Error', ('ctermfg=15 ctermbg=9 guifg=%s guibg=%s'):format(p.base00, p.base08))
-  validate_hl_group('Special', ('ctermfg=224 guifg=%s'):format(p.base0C))
+  validate_hl_group('Comment', ('guifg=%s'):format(p.base03))
+  validate_hl_group('Error', ('guifg=%s guibg=%s'):format(p.base00, p.base08))
+  validate_hl_group('Special', ('guifg=%s'):format(p.base0C))
   validate_hl_group('Bold', 'gui=bold')
 
   local diagnostic_hl_group = 'DiagnosticError'
-  validate_hl_group(diagnostic_hl_group, ('ctermfg=1 guifg=%s'):format(p.base08))
+  validate_hl_group(diagnostic_hl_group, ('guifg=%s'):format(p.base08))
 end
 
 T['setup()']['defines highlight groups for terminal colors'] = function()
@@ -198,8 +205,9 @@ T['mini_palette()']['validates arguments'] = function()
   validate({ '#000000', '#FFFFFF', -1 }, 'accent_chroma.*positive')
 end
 
-T['mini_palette()']['works'] =
-  function() eq(child.lua_get([[MiniBase16.mini_palette('#112641', '#e2e98f', 75)]]), minischeme_palette) end
+T['mini_palette()']['works'] = function()
+  eq(child.lua_get([[MiniBase16.mini_palette('#112641', '#e2e98f', 75)]]), minischeme_palette)
+end
 
 T['rgb_palette_to_cterm_palette()'] = new_set()
 
@@ -226,14 +234,14 @@ end
 T['minischeme colorscheme'] = new_set()
 
 T['minischeme colorscheme']['works with dark background'] = function()
-  child.cmd('set background=dark')
   child.cmd('colorscheme minischeme')
+  child.o.background = 'dark'
   validate_hl_group('Normal', 'ctermfg=186 ctermbg=235 guifg=#e2e98f guibg=#112641')
 end
 
 T['minischeme colorscheme']['works with light background'] = function()
-  child.cmd('set background=light')
   child.cmd('colorscheme minischeme')
+  child.o.background = 'light'
   validate_hl_group('Normal', 'ctermfg=18 ctermbg=254 guifg=#002a83 guibg=#e2e5ca')
 end
 

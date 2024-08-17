@@ -14,8 +14,7 @@ local get_cursor = function(...) return child.get_cursor(...) end
 local set_lines = function(...) return child.set_lines(...) end
 local get_lines = function(...) return child.get_lines(...) end
 local type_keys = function(...) return child.type_keys(...) end
-local poke_eventloop = function() child.api.nvim_eval('1') end
-local sleep = function(ms) vim.loop.sleep(ms); poke_eventloop() end
+local sleep = function(ms) helpers.sleep(ms, child) end
 --stylua: ignore end
 
 -- Make helpers
@@ -23,6 +22,9 @@ local get_term_channel = function()
   local term_chans = vim.tbl_filter(function(x) return x.mode == 'terminal' end, child.api.nvim_list_chans())[1]['id']
   return term_chans[1]['id']
 end
+
+-- Time constants
+local term_mode_wait = helpers.get_time_const(50)
 
 --- Make simple test on empty entity
 ---@private
@@ -53,10 +55,13 @@ local validate_action = function(mode, test)
     -- Cleanup
     type_keys('<Esc>')
   elseif mode == 't' then
+    helpers.skip_on_windows('Terminal emulator testing is not robust/easy on Windows')
+    helpers.skip_on_macos('Terminal emulator testing is not robust/easy on MacOS')
+
     -- Setup
     child.cmd('terminal! bash --noprofile --norc')
     -- Wait for terminal to get active
-    sleep(50)
+    sleep(term_mode_wait)
     child.cmd('startinsert')
 
     -- Test
@@ -114,15 +119,14 @@ local validate_close = function(mode, key, pair)
       eq(child.fn.getcmdpos(), 3)
     end,
     t = function()
-      -- Need to wait after each keystroke to allow shell to process it
-      local wait = 50
       local term_channel = get_term_channel()
 
       -- Jumps over right hand side of `pair` if it is next
       child.fn.chansend(term_channel, pair)
-      sleep(wait)
-      type_keys(wait, '<Left>')
-      type_keys(wait, key)
+      -- Need to wait after each keystroke to allow shell to process it
+      sleep(term_mode_wait)
+      type_keys(term_mode_wait, '<Left>')
+      type_keys(term_mode_wait, key)
 
       local pair_pattern = vim.pesc(pair) .. '$'
       expect.match(get_lines()[1], pair_pattern)
@@ -149,14 +153,13 @@ local validate_bs = function(mode, pair)
       eq(child.fn.getcmdpos(), 1)
     end,
     t = function()
-      -- Need to wait after each keystroke to allow shell to process it
-      local wait = 50
       local term_channel = get_term_channel()
 
       child.fn.chansend(term_channel, pair)
-      sleep(wait)
-      type_keys(wait, '<Left>')
-      type_keys(wait, '<BS>')
+      -- Need to wait after each keystroke to allow shell to process it
+      sleep(term_mode_wait)
+      type_keys(term_mode_wait, '<Left>')
+      type_keys(term_mode_wait, '<BS>')
 
       local pair_pattern = vim.pesc(pair) .. '$'
       expect.no_match(get_lines()[1], pair_pattern)
@@ -170,23 +173,19 @@ end
 ---@private
 local validate_cr = function(pair)
   local test = function()
-    -- Reference pass
+    -- Reference pass to get baseline data for default behavior
     set_lines({ pair })
-    set_cursor(1, 1)
-
-    type_keys('<Esc>')
-    -- Use `exe "..."` to allow special characters (as per `:h :normal`)
-    child.cmd([[exe "normal! a\<CR>\<C-o>O"]])
+    set_cursor(1, 0)
+    local keys = child.api.nvim_replace_termcodes('<Esc>a<CR><C-o>O', true, true, true)
+    child.api.nvim_feedkeys(keys, 'nx', false)
 
     local ref_lines, ref_cursor = get_lines(), get_cursor()
 
-    -- Intermediate cleanup
     -- Test pass
     set_lines({ pair })
-    set_cursor(1, 1)
+    set_cursor(1, 0)
+    type_keys('<Esc>', 'a', '<CR>')
 
-    poke_eventloop()
-    type_keys('i', '<CR>')
     eq(get_lines(), ref_lines)
     eq(get_cursor(), ref_cursor)
     eq(child.fn.mode(), 'i')
@@ -256,7 +255,7 @@ local apply_unmap = function(fun_name, args_string)
 end
 
 -- Output test set ============================================================
-T = new_set({
+local T = new_set({
   hooks = {
     pre_case = function()
       child.setup()
@@ -327,7 +326,6 @@ T['setup()']['validates `config` argument'] = function()
   local expect_mapping_pair_info = function(key)
     local quote = key == "'" and '"' or "'"
     local prefix = ('mappings[%s%s%s]'):format(quote, key, quote)
-    expect_config_error({ mappings = { [key] = 'a' } }, 'mappings', 'table')
     expect_config_error({ mappings = { [key] = { action = 1 } } }, prefix .. '.action', 'string')
     expect_config_error({ mappings = { [key] = { action = 1 } } }, prefix .. '.action', 'string')
     expect_config_error({ mappings = { [key] = { pair = 1 } } }, prefix .. '.pair', 'string')
@@ -384,6 +382,14 @@ T['setup()']['makes mappings in supplied modes'] = function()
 
   eq(has_map('(', [[v:lua.MiniPairs.open("()", "[^\\].")]]), false)
   eq(has_map('(', [[v:lua.MiniPairs.open("()", "[^\\].")]], 'c'), true)
+end
+
+T['setup()']['allows `false` as `mappings` entry to not create mapping'] = function()
+  eq(has_map('(', [[v:lua.MiniPairs.open("()", "[^\\].")]]), true)
+  child.api.nvim_del_keymap('i', '(')
+
+  reload_module({ mappings = { ['('] = false } })
+  eq(has_map('(', [[v:lua.MiniPairs.open("()", "[^\\].")]]), false)
 end
 
 T['map()/map_buf()'] = new_set({
@@ -764,6 +770,13 @@ T['<BS> action']['works'] = function()
   validate_bs('i', '""')
   validate_bs('i', "''")
   validate_bs('i', '``')
+
+  -- Should work in Command-line with redraw
+  child.set_size(10, 12)
+  reload_module({ modes = { command = true } })
+  type_keys(':aa()bb', '<Left>', '<Left>', '<Left>')
+  type_keys('<BS>')
+  child.expect_screenshot()
 end
 
 T['<BS> action']['respects `key` argument'] = function()
@@ -905,6 +918,27 @@ T['<CR> action']['does not break undo sequence in Insert mode'] = function()
   type_keys('<CR>', 'a', '<Esc>')
   type_keys('u')
   eq(get_lines(), { '()' })
+end
+
+T['<CR> action']['reindents the line'] = function()
+  child.bo.cindent = true
+  set_lines({ '{}' })
+  set_cursor(1, 1)
+  child.cmd('startinsert')
+
+  type_keys('<CR>')
+  eq(get_lines(), { '{', '\t', '}' })
+end
+
+T['<CR> action']['does not trigger mode change'] = function()
+  child.o.eventignore = 'CursorHold'
+  set_lines({ '{}' })
+  set_cursor(1, 1)
+  child.cmd('startinsert')
+  child.cmd('au InsertLeave,InsertLeavePre,InsertEnter,ModeChanged * lua _G.n = (_G.n or 0) + 1')
+  type_keys('<CR>')
+  eq(child.lua_get('_G.n'), vim.NIL)
+  eq(child.o.eventignore, 'CursorHold')
 end
 
 local reload_unregister_cr = function()

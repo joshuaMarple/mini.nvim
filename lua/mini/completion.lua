@@ -43,7 +43,7 @@
 --- - User can force two-stage completion via
 ---   |MiniCompletion.complete_twostage()| (by default is mapped to
 ---   `<C-Space>`) or fallback completion via
----   |MiniCompletion.complete_fallback()| (maped to `<M-Space>`).
+---   |MiniCompletion.complete_fallback()| (mapped to `<M-Space>`).
 ---
 --- What it doesn't do:
 --- - Snippet expansion.
@@ -51,7 +51,7 @@
 --- - Automatic mapping of `<CR>`, `<Tab>`, etc., as those tend to have highly
 ---   variable user expectations. See 'Helpful key mappings' for suggestions.
 ---
---- # Setup~
+--- # Setup ~
 ---
 --- This module needs a setup with `require('mini.completion').setup({})`
 --- (replace `{}` with your `config` table). It will create global Lua table
@@ -64,7 +64,7 @@
 --- `vim.b.minicompletion_config` which should have same structure as
 --- `MiniCompletion.config`. See |mini.nvim-buffer-local-config| for more details.
 ---
---- # Notes~
+--- # Notes ~
 ---
 --- - More appropriate, albeit slightly advanced, LSP completion setup is to set
 ---   it not on every `BufEnter` event (default), but on every attach of LSP
@@ -73,10 +73,16 @@
 ---     `lsp_completion = {source_func = 'omnifunc', auto_setup = false}`.
 ---     - In `on_attach()` of every LSP client set 'omnifunc' option to exactly
 ---       `v:lua.MiniCompletion.completefunc_lsp`.
---- - If you have trouble using custom (overriden) |vim.ui.input| (like from
+---
+--- - Uses `vim.lsp.protocol.CompletionItemKind` map in LSP step to show a readable
+---   version of item's kind. Modify it directly to change what is displayed.
+---   If you have |mini.icons| enabled, take a look at |MiniIcons.tweak_lsp_kind()|.
+---
+--- - If you have trouble using custom (overridden) |vim.ui.input| (like from
 ---   'stevearc/dressing.nvim'), make automated disable of 'mini.completion'
 ---   for input buffer. For example, currently for 'dressing.nvim' it can be
 ---   with `au FileType DressingInput lua vim.b.minicompletion_disable = true`.
+---
 --- - Support of `additionalTextEdits` tries to handle both types of servers:
 ---     - When `additionalTextEdits` are supplied in response to
 ---       'textDocument/completion' request (like currently in 'pyright').
@@ -86,7 +92,7 @@
 ---       to trigger such request, i.e. select completion item and wait for
 ---       `MiniCompletion.config.delay.info` time plus server response time.
 ---
---- # Comparisons~
+--- # Comparisons ~
 ---
 --- - 'nvim-cmp':
 ---     - More complex design which allows multiple sources each in form of
@@ -96,19 +102,27 @@
 ---     - Doesn't allow fallback action.
 ---     - Doesn't provide signature help.
 ---
---- # Helpful key mappings~
+--- # Helpful mappings ~
 ---
 --- To use `<Tab>` and `<S-Tab>` for navigation through completion list, make
---- these key mappings:
---- `vim.api.nvim_set_keymap('i', '<Tab>',   [[pumvisible() ? "\<C-n>" : "\<Tab>"]],   { noremap = true, expr = true })`
---- `vim.api.nvim_set_keymap('i', '<S-Tab>', [[pumvisible() ? "\<C-p>" : "\<S-Tab>"]], { noremap = true, expr = true })`
+--- these mappings: >lua
 ---
+---   local imap_expr = function(lhs, rhs)
+---     vim.keymap.set('i', lhs, rhs, { expr = true })
+---   end
+---   imap_expr('<Tab>',   [[pumvisible() ? "\<C-n>" : "\<Tab>"]])
+---   imap_expr('<S-Tab>', [[pumvisible() ? "\<C-p>" : "\<S-Tab>"]])
+--- <
 --- To get more consistent behavior of `<CR>`, you can use this template in
---- your 'init.lua' to make customized mapping: >
+--- your 'init.lua' to make customized mapping: >lua
+---
+---   local keycode = vim.keycode or function(x)
+---     return vim.api.nvim_replace_termcodes(x, true, true, true)
+---   end
 ---   local keys = {
----     ['cr']        = vim.api.nvim_replace_termcodes('<CR>', true, true, true),
----     ['ctrl-y']    = vim.api.nvim_replace_termcodes('<C-y>', true, true, true),
----     ['ctrl-y_cr'] = vim.api.nvim_replace_termcodes('<C-y><CR>', true, true, true),
+---     ['cr']        = keycode('<CR>'),
+---     ['ctrl-y']    = keycode('<C-y>'),
+---     ['ctrl-y_cr'] = keycode('<C-y><CR>'),
 ---   }
 ---
 ---   _G.cr_action = function()
@@ -124,16 +138,16 @@
 ---     end
 ---   end
 ---
----   vim.api.nvim_set_keymap('i', '<CR>', 'v:lua._G.cr_action()', { noremap = true, expr = true })
+---   vim.keymap.set('i', '<CR>', 'v:lua._G.cr_action()', { expr = true })
 --- <
---- # Highlight groups~
+--- # Highlight groups ~
 ---
---- * `MiniCompletionActiveParameter` - highlighting of signature active parameter.
+--- * `MiniCompletionActiveParameter` - signature active parameter.
 ---   By default displayed as plain underline.
 ---
 --- To change any highlight group, modify it directly with |:highlight|.
 ---
---- # Disabling~
+--- # Disabling ~
 ---
 --- To disable, set `vim.g.minicompletion_disable` (globally) or
 --- `vim.b.minicompletion_disable` (for a buffer) to `true`. Considering high
@@ -189,17 +203,12 @@ local H = {}
 ---
 ---@param config table|nil Module config table. See |MiniCompletion.config|.
 ---
----@usage `require('mini.completion').setup({})` (replace `{}` with your `config` table)
+---@usage >lua
+---   require('mini.completion').setup() -- use default config
+---   -- OR
+---   require('mini.completion').setup({}) -- replace {} with your config table
+--- <
 MiniCompletion.setup = function(config)
-  -- TODO: Remove after Neovim<=0.6 support is dropped
-  if vim.fn.has('nvim-0.7') == 0 then
-    vim.notify(
-      '(mini.completion) Neovim<0.7 is soft deprecated (module works but not supported).'
-        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
-        .. ' Please update your Neovim version.'
-    )
-  end
-
   -- Export module
   _G.MiniCompletion = MiniCompletion
 
@@ -209,36 +218,11 @@ MiniCompletion.setup = function(config)
   -- Apply config
   H.apply_config(config)
 
-  -- Setup module behavior
-  vim.api.nvim_exec(
-    [[augroup MiniCompletion
-        au!
-        au InsertCharPre   * lua MiniCompletion.auto_completion()
-        au CompleteChanged * lua MiniCompletion.auto_info()
-        au CursorMovedI    * lua MiniCompletion.auto_signature()
-        au InsertLeavePre  * lua MiniCompletion.stop()
-        au CompleteDonePre * lua MiniCompletion.on_completedonepre()
-        au TextChangedI    * lua MiniCompletion.on_text_changed_i()
-        au TextChangedP    * lua MiniCompletion.on_text_changed_p()
+  -- Define behavior
+  H.create_autocommands(config)
 
-        au FileType TelescopePrompt let b:minicompletion_disable=v:true
-        au ColorScheme * hi default MiniCompletionActiveParameter cterm=underline gui=underline
-      augroup END]],
-    false
-  )
-
-  if config.lsp_completion.auto_setup then
-    local command = string.format(
-      [[augroup MiniCompletion
-          au BufEnter * setlocal %s=v:lua.MiniCompletion.completefunc_lsp
-        augroup END]],
-      config.lsp_completion.source_func
-    )
-    vim.api.nvim_exec(command, false)
-  end
-
-  -- Create highlighting
-  vim.api.nvim_exec('hi default MiniCompletionActiveParameter cterm=underline gui=underline', false)
+  -- Create default highlighting
+  H.create_default_hl()
 end
 
 --- Module config
@@ -277,7 +261,8 @@ MiniCompletion.config = {
     process_items = function(items, base)
       local res = vim.tbl_filter(function(item)
         -- Keep items which match the base and are not snippets
-        return vim.startswith(H.get_completion_word(item), base) and item.kind ~= 15
+        local text = item.filterText or H.get_completion_word(item)
+        return vim.startswith(text, base) and item.kind ~= 15
       end, items)
 
       table.sort(res, function(a, b) return (a.sortText or a.label) < (b.sortText or b.label) end)
@@ -308,56 +293,6 @@ MiniCompletion.config = {
 --minidoc_afterlines_end
 
 -- Module functionality =======================================================
---- Auto completion
----
---- Designed to be used with |autocmd|. No need to use it directly, everything
---- is setup in |MiniCompletion.setup|.
-MiniCompletion.auto_completion = function()
-  if H.is_disabled() then return end
-
-  H.completion.timer:stop()
-
-  -- Don't do anything if popup is visible
-  if H.pumvisible() then
-    -- Keep completion source as it is needed all time when popup is visible
-    H.stop_completion(true)
-    return
-  end
-
-  -- Stop everything if inserted character is not appropriate
-  local char_is_trigger = H.is_lsp_trigger(vim.v.char, 'completion')
-  if not (H.is_char_keyword(vim.v.char) or char_is_trigger) then
-    H.stop_completion(false)
-    return
-  end
-
-  -- If character is purely lsp trigger, make new LSP request without fallback
-  -- and force new completion
-  if char_is_trigger then H.cancel_lsp() end
-  H.completion.fallback, H.completion.force = not char_is_trigger, char_is_trigger
-
-  -- Cache id of Insert mode "text changed" event for a later tracking (reduces
-  -- false positive delayed triggers). The intention is to trigger completion
-  -- after the delay only if text wasn't changed during waiting. Using only
-  -- `InsertCharPre` is not enough though, as not every Insert mode change
-  -- triggers `InsertCharPre` event (notable example - hitting `<CR>`).
-  -- Also, using `+ 1` here because it is a `Pre` event and needs to cache
-  -- after inserting character.
-  H.completion.text_changed_id = H.text_changed_id + 1
-
-  -- If completion was requested after 'lsp' source exhausted itself (there
-  -- were matches on typing start, but they disappeared during filtering), call
-  -- fallback immediately.
-  if H.completion.source == 'lsp' then
-    H.trigger_fallback()
-    return
-  end
-
-  -- Using delay (of debounce type) actually improves user experience
-  -- as it allows fast typing without many popups.
-  H.completion.timer:start(H.get_config().delay.completion, 0, vim.schedule_wrap(H.trigger_twostep))
-end
-
 --- Run two-stage completion
 ---
 ---@param fallback boolean|nil Whether to use fallback completion. Default: `true`.
@@ -382,49 +317,6 @@ MiniCompletion.complete_fallback = function()
   H.trigger_fallback()
 end
 
---- Auto completion entry information
----
---- Designed to be used with |autocmd|. No need to use it directly, everything
---- is setup in |MiniCompletion.setup|.
-MiniCompletion.auto_info = function()
-  if H.is_disabled() then return end
-
-  H.info.timer:stop()
-
-  -- Defer execution because of textlock during `CompleteChanged` event
-  -- Don't stop timer when closing info window because it is needed
-  vim.defer_fn(function() H.close_action_window(H.info, true) end, 0)
-
-  -- Stop current LSP request that tries to get not current data
-  H.cancel_lsp({ H.info })
-
-  -- Update metadata before leaving to register a `CompleteChanged` event
-  H.info.event = vim.v.event
-  H.info.id = H.info.id + 1
-
-  -- Don't even try to show info if nothing is selected in popup
-  if vim.tbl_isempty(H.info.event.completed_item) then return end
-
-  H.info.timer:start(H.get_config().delay.info, 0, vim.schedule_wrap(H.show_info_window))
-end
-
---- Auto function signature
----
---- Designed to be used with |autocmd|. No need to use it directly, everything
---- is setup in |MiniCompletion.setup|.
-MiniCompletion.auto_signature = function()
-  if H.is_disabled() then return end
-
-  H.signature.timer:stop()
-  if not H.has_lsp_clients('signatureHelpProvider') then return end
-
-  local left_char = H.get_left_char()
-  local char_is_trigger = left_char == ')' or H.is_lsp_trigger(left_char, 'signature')
-  if not char_is_trigger then return end
-
-  H.signature.timer:start(H.get_config().delay.signature, 0, vim.schedule_wrap(H.show_signature_window))
-end
-
 --- Stop actions
 ---
 --- This stops currently active (because of module delay or LSP answer delay)
@@ -442,30 +334,6 @@ MiniCompletion.stop = function(actions)
   end
 end
 
-MiniCompletion.on_completedonepre = function()
-  -- Try to apply additional text edits
-  H.apply_additional_text_edits()
-
-  -- Stop processes
-  MiniCompletion.stop({ 'completion', 'info' })
-end
-
---- Act on every |TextChangedI|
-MiniCompletion.on_text_changed_i = function()
-  -- Track Insert mode changes
-  H.text_changed_id = H.text_changed_id + 1
-
-  -- Stop 'info' processes in case no completion event is triggered but popup
-  -- is not visible. See https://github.com/neovim/neovim/issues/15077
-  H.stop_info()
-end
-
---- Act on every |TextChangedP|
-MiniCompletion.on_text_changed_p = function()
-  -- Track Insert mode changes
-  H.text_changed_id = H.text_changed_id + 1
-end
-
 --- Module's |complete-function|
 ---
 --- This is the main function which enables two-stage completion. It should be
@@ -475,11 +343,8 @@ end
 MiniCompletion.completefunc_lsp = function(findstart, base)
   -- Early return
   if not H.has_lsp_clients('completionProvider') or H.completion.lsp.status == 'sent' then
-    if findstart == 1 then
-      return -3
-    else
-      return {}
-    end
+    if findstart == 1 then return -3 end
+    return {}
   end
 
   -- NOTE: having code for request inside this function enables its use
@@ -519,31 +384,24 @@ MiniCompletion.completefunc_lsp = function(findstart, base)
     H.completion.lsp.cancel_fun = cancel_fun
 
     -- End completion and wait for LSP callback
-    if findstart == 1 then
-      return -3
-    else
-      return {}
-    end
+    if findstart == 1 then return -3 end
+    return {}
   else
-    if findstart == 1 then return H.get_completion_start() end
+    if findstart == 1 then return H.get_completion_start(H.completion.lsp.result) end
 
-    local config = H.get_config()
-
+    local process_items = H.get_config().lsp_completion.process_items
     local words = H.process_lsp_response(H.completion.lsp.result, function(response, client_id)
       -- Response can be `CompletionList` with 'items' field or `CompletionItem[]`
       local items = H.table_get(response, { 'items' }) or response
       if type(items) ~= 'table' then return {} end
-      items = config.lsp_completion.process_items(items, base)
+      items = process_items(items, base)
       return H.lsp_completion_response_items_to_complete_items(items, client_id)
     end)
 
     H.completion.lsp.status = 'done'
 
     -- Maybe trigger fallback action
-    if vim.tbl_isempty(words) and H.completion.fallback then
-      H.trigger_fallback()
-      return
-    end
+    if vim.tbl_isempty(words) and H.completion.fallback then return H.trigger_fallback() end
 
     -- Track from which source is current popup
     H.completion.source = 'lsp'
@@ -552,12 +410,13 @@ MiniCompletion.completefunc_lsp = function(findstart, base)
 end
 
 --- Default `MiniCompletion.config.lsp_completion.process_items`
-MiniCompletion.default_process_items =
-  function(items, base) return H.default_config.lsp_completion.process_items(items, base) end
+MiniCompletion.default_process_items = function(items, base)
+  return H.default_config.lsp_completion.process_items(items, base)
+end
 
 -- Helper data ================================================================
 -- Module default config
-H.default_config = MiniCompletion.config
+H.default_config = vim.deepcopy(MiniCompletion.config)
 
 -- Track Insert mode changes
 H.text_changed_id = 0
@@ -596,7 +455,7 @@ H.info = {
   event = nil,
   id = 0,
   timer = vim.loop.new_timer(),
-  winnr = nil,
+  win_id = nil,
   lsp = { id = 0, status = nil, result = nil, cancel_fun = nil },
 }
 
@@ -605,7 +464,7 @@ H.signature = {
   bufnr = nil,
   text = nil,
   timer = vim.loop.new_timer(),
-  winnr = nil,
+  win_id = nil,
   lsp = { id = 0, status = nil, result = nil, cancel_fun = nil },
 }
 
@@ -615,7 +474,7 @@ H.setup_config = function(config)
   -- General idea: if some table elements are not present in user-supplied
   -- `config`, take them from default config
   vim.validate({ config = { config, 'table', true } })
-  config = vim.tbl_deep_extend('force', H.default_config, config or {})
+  config = vim.tbl_deep_extend('force', vim.deepcopy(H.default_config), config or {})
 
   -- Validate per nesting level to produce correct error message
   vim.validate({
@@ -651,7 +510,7 @@ H.setup_config = function(config)
     ['mappings.force_fallback'] = { config.mappings.force_fallback, 'string' },
   })
 
-  local is_string_or_array = function(x) return type(x) == 'string' or vim.tbl_islist(x) end
+  local is_string_or_array = function(x) return type(x) == 'string' or H.islist(x) end
   vim.validate({
     ['window.info.height'] = { config.window.info.height, 'number' },
     ['window.info.width'] = { config.window.info.width, 'number' },
@@ -676,22 +535,159 @@ H.apply_config = function(config)
   MiniCompletion.config = config
 
   --stylua: ignore start
-  H.map('i', config.mappings.force_twostep, '<cmd>lua MiniCompletion.complete_twostage()<cr>', { desc = 'Complete with two-stage' })
-  H.map('i', config.mappings.force_fallback, '<cmd>lua MiniCompletion.complete_fallback()<cr>', { desc = 'Complete with fallback' })
+  H.map('i', config.mappings.force_twostep, MiniCompletion.complete_twostage, { desc = 'Complete with two-stage' })
+  H.map('i', config.mappings.force_fallback, MiniCompletion.complete_fallback, { desc = 'Complete with fallback' })
   --stylua: ignore end
 
   if config.set_vim_settings then
     -- Don't give ins-completion-menu messages
-    vim.cmd('set shortmess+=c')
+    vim.opt.shortmess:append('c')
+    if vim.fn.has('nvim-0.9') == 1 then vim.opt.shortmess:append('C') end
+
     -- More common completion behavior
-    vim.cmd('set completeopt=menuone,noinsert,noselect')
+    vim.o.completeopt = 'menuone,noinsert,noselect'
   end
+end
+
+H.create_autocommands = function(config)
+  local augroup = vim.api.nvim_create_augroup('MiniCompletion', {})
+
+  local au = function(event, pattern, callback, desc)
+    vim.api.nvim_create_autocmd(event, { group = augroup, pattern = pattern, callback = callback, desc = desc })
+  end
+
+  au('InsertCharPre', '*', H.auto_completion, 'Auto show completion')
+  au('CompleteChanged', '*', H.auto_info, 'Auto show info')
+  au('CursorMovedI', '*', H.auto_signature, 'Auto show signature')
+  au('ModeChanged', 'i*:[^i]*', function() MiniCompletion.stop() end, 'Stop completion')
+  au('CompleteDonePre', '*', H.on_completedonepre, 'On CompleteDonePre')
+  au('TextChangedI', '*', H.on_text_changed_i, 'On TextChangedI')
+  au('TextChangedP', '*', H.on_text_changed_p, 'On TextChangedP')
+
+  if config.lsp_completion.auto_setup then
+    local source_func = config.lsp_completion.source_func
+    local callback = function() vim.bo[source_func] = 'v:lua.MiniCompletion.completefunc_lsp' end
+    au('BufEnter', '*', callback, 'Set completion function')
+  end
+
+  au('ColorScheme', '*', H.create_default_hl, 'Ensure proper colors')
+  au('FileType', 'TelescopePrompt', function() vim.b.minicompletion_disable = true end, 'Disable locally')
+end
+
+H.create_default_hl = function()
+  vim.api.nvim_set_hl(0, 'MiniCompletionActiveParameter', { default = true, underline = true })
 end
 
 H.is_disabled = function() return vim.g.minicompletion_disable == true or vim.b.minicompletion_disable == true end
 
 H.get_config = function(config)
   return vim.tbl_deep_extend('force', MiniCompletion.config, vim.b.minicompletion_config or {}, config or {})
+end
+
+-- Autocommands ---------------------------------------------------------------
+H.auto_completion = function()
+  if H.is_disabled() then return end
+
+  H.completion.timer:stop()
+
+  local char_is_trigger = H.is_lsp_trigger(vim.v.char, 'completion')
+  if char_is_trigger then
+    -- If character is LSP trigger, force fresh LSP completion later
+    -- Check LSP trigger before checking for pumvisible because it should be
+    -- forced even if there are visible candidates
+    H.stop_completion(false)
+  elseif H.pumvisible() then
+    -- Do nothing if popup is visible. `H.pumvisible()` might be `true` even if
+    -- there is no popup. It is common when manually typing candidate followed
+    -- by an LSP trigger (like ".").
+    -- Keep completion source as it is needed all time when popup is visible.
+    return H.stop_completion(true)
+  elseif not H.is_char_keyword(vim.v.char) then
+    -- Stop everything if inserted character is not appropriate. Check this
+    -- after popup check to allow completion candidates to have bad characters.
+    return H.stop_completion(false)
+  end
+
+  -- Start non-forced completion with fallback or forced LSP source for trigger
+  H.completion.fallback, H.completion.force = not char_is_trigger, char_is_trigger
+
+  -- Cache id of Insert mode "text changed" event for a later tracking (reduces
+  -- false positive delayed triggers). The intention is to trigger completion
+  -- after the delay only if text wasn't changed during waiting. Using only
+  -- `InsertCharPre` is not enough though, as not every Insert mode change
+  -- triggers `InsertCharPre` event (notable example - hitting `<CR>`).
+  -- Also, using `+ 1` here because it is a `Pre` event and needs to cache
+  -- after inserting character.
+  H.completion.text_changed_id = H.text_changed_id + 1
+
+  -- If completion was requested after 'lsp' source exhausted itself (there
+  -- were matches on typing start, but they disappeared during filtering), call
+  -- fallback immediately.
+  if H.completion.source == 'lsp' then
+    H.trigger_fallback()
+    return
+  end
+
+  -- Using delay (of debounce type) actually improves user experience
+  -- as it allows fast typing without many popups.
+  H.completion.timer:start(H.get_config().delay.completion, 0, vim.schedule_wrap(H.trigger_twostep))
+end
+
+H.auto_info = function()
+  if H.is_disabled() then return end
+
+  H.info.timer:stop()
+
+  -- Defer execution because of textlock during `CompleteChanged` event
+  -- Don't stop timer when closing info window because it is needed
+  vim.schedule(function() H.close_action_window(H.info, true) end)
+
+  -- Stop current LSP request that tries to get not current data
+  H.cancel_lsp({ H.info })
+
+  -- Update metadata before leaving to register a `CompleteChanged` event
+  H.info.event = vim.v.event
+  H.info.id = H.info.id + 1
+
+  -- Don't even try to show info if nothing is selected in popup
+  if vim.tbl_isempty(H.info.event.completed_item) then return end
+
+  H.info.timer:start(H.get_config().delay.info, 0, vim.schedule_wrap(H.show_info_window))
+end
+
+H.auto_signature = function()
+  if H.is_disabled() then return end
+
+  H.signature.timer:stop()
+  if not H.has_lsp_clients('signatureHelpProvider') then return end
+
+  local left_char = H.get_left_char()
+  local char_is_trigger = left_char == ')' or H.is_lsp_trigger(left_char, 'signature')
+  if not char_is_trigger then return end
+
+  H.signature.timer:start(H.get_config().delay.signature, 0, vim.schedule_wrap(H.show_signature_window))
+end
+
+H.on_completedonepre = function()
+  -- Try to apply additional text edits
+  H.apply_additional_text_edits()
+
+  -- Stop processes
+  MiniCompletion.stop({ 'completion', 'info' })
+end
+
+H.on_text_changed_i = function()
+  -- Track Insert mode changes
+  H.text_changed_id = H.text_changed_id + 1
+
+  -- Stop 'info' processes in case no completion event is triggered but popup
+  -- is not visible. See https://github.com/neovim/neovim/issues/15077
+  H.stop_info()
+end
+
+H.on_text_changed_p = function()
+  -- Track Insert mode changes
+  H.text_changed_id = H.text_changed_id + 1
 end
 
 -- Completion triggers --------------------------------------------------------
@@ -736,22 +732,24 @@ H.trigger_lsp = function()
 end
 
 H.trigger_fallback = function()
-  local no_popup = H.completion.force or (not H.pumvisible())
-  if no_popup and vim.fn.mode() == 'i' then
-    -- Track from which source is current popup
-    H.completion.source = 'fallback'
-    local config = H.get_config()
-    if type(config.fallback_action) == 'string' then
-      -- Having `<C-g><C-g>` also (for some mysterious reason) helps to avoid
-      -- some weird behavior. For example, if `keys = '<C-x><C-l>'` then Neovim
-      -- starts new line when there is no suggestions.
-      local keys = string.format('<C-g><C-g>%s', config.fallback_action)
-      local trigger_keys = vim.api.nvim_replace_termcodes(keys, true, false, true)
-      vim.api.nvim_feedkeys(trigger_keys, 'n', false)
-    else
-      config.fallback_action()
-    end
-  end
+  -- Fallback only in Insert mode when no popup is visible
+  local has_popup = H.pumvisible() and not H.completion.force
+  if has_popup or vim.fn.mode() ~= 'i' then return end
+
+  -- Track from which source is current popup
+  H.completion.source = 'fallback'
+
+  -- Execute fallback action
+  local fallback_action = H.get_config().fallback_action
+  if vim.is_callable(fallback_action) then return fallback_action() end
+  if type(fallback_action) ~= 'string' then return end
+
+  -- Having `<C-g><C-g>` also (for some mysterious reason) helps to avoid
+  -- some weird behavior. For example, if `keys = '<C-x><C-l>'` then Neovim
+  -- starts new line when there is no suggestions.
+  local keys = string.format('<C-g><C-g>%s', fallback_action)
+  local trigger_keys = vim.api.nvim_replace_termcodes(keys, true, false, true)
+  vim.api.nvim_feedkeys(trigger_keys, 'n', false)
 end
 
 -- Stop actions ---------------------------------------------------------------
@@ -790,7 +788,7 @@ H.stop_actions = {
 ---@return boolean Whether at least one LSP client supports `capability`.
 ---@private
 H.has_lsp_clients = function(capability)
-  local clients = vim.lsp.buf_get_clients()
+  local clients = H.get_buf_lsp_clients()
   if vim.tbl_isempty(clients) then return false end
   if not capability then return true end
 
@@ -802,18 +800,16 @@ H.has_lsp_clients = function(capability)
 end
 
 H.has_lsp_completion = function()
-  local func = vim.api.nvim_buf_get_option(0, H.get_config().lsp_completion.source_func)
+  local source_func = H.get_config().lsp_completion.source_func
+  local func = vim.bo[source_func]
   return func == 'v:lua.MiniCompletion.completefunc_lsp'
 end
 
 H.is_lsp_trigger = function(char, type)
   local triggers
-  local providers = {
-    completion = 'completionProvider',
-    signature = 'signatureHelpProvider',
-  }
+  local providers = { completion = 'completionProvider', signature = 'signatureHelpProvider' }
 
-  for _, client in pairs(vim.lsp.buf_get_clients()) do
+  for _, client in pairs(H.get_buf_lsp_clients()) do
     triggers = H.table_get(client, { 'server_capabilities', providers[type], 'triggerCharacters' })
     if vim.tbl_contains(triggers or {}, char) then return true end
   end
@@ -828,8 +824,7 @@ H.cancel_lsp = function(caches)
       c.lsp.status = 'canceled'
     end
 
-    c.lsp.result = nil
-    c.lsp.cancel_fun = nil
+    c.lsp.result, c.lsp.cancel_fun = nil, nil
   end
 end
 
@@ -909,7 +904,7 @@ H.apply_additional_text_edits = function()
   if edits == nil then return end
   client_id = client_id or 0
 
-  -- Use extmark to track relevant cursor postion after text edits
+  -- Use extmark to track relevant cursor position after text edits
   local cur_pos = vim.api.nvim_win_get_cursor(0)
   local extmark_id = vim.api.nvim_buf_set_extmark(0, H.ns_id, cur_pos[1] - 1, cur_pos[2], {})
 
@@ -932,7 +927,7 @@ H.show_info_window = function()
     lines = H.process_lsp_response(H.info.lsp.result, function(response)
       if not response.documentation then return {} end
       local res = vim.lsp.util.convert_input_to_markdown_lines(response.documentation)
-      return vim.lsp.util.trim_empty_lines(res)
+      return H.normalize_lines(res)
     end)
 
     H.info.lsp.status = 'done'
@@ -952,17 +947,17 @@ H.show_info_window = function()
 
   -- Add `lines` to info buffer. Use `wrap_at` to have proper width of
   -- 'non-UTF8' section separators.
-  vim.lsp.util.stylize_markdown(H.info.bufnr, lines, { wrap_at = H.get_config().window.info.width })
+  H.stylize_markdown(H.info.bufnr, lines, { wrap_at = H.get_config().window.info.width })
 
   -- Compute floating window options
   local opts = H.info_window_options()
 
   -- Defer execution because of textlock during `CompleteChanged` event
-  vim.defer_fn(function()
+  vim.schedule(function()
     -- Ensure that window doesn't open when it shouldn't be
     if not (H.pumvisible() and vim.fn.mode() == 'i') then return end
     H.open_action_window(H.info, opts)
-  end, 0)
+  end)
 end
 
 H.info_window_lines = function(info_id)
@@ -973,7 +968,7 @@ H.info_window_lines = function(info_id)
   if not H.is_whitespace(text) then
     -- Use `<text></text>` to be properly processed by `stylize_markdown()`
     local lines = { '<text>' }
-    vim.list_extend(lines, vim.split(text, '\n', false))
+    vim.list_extend(lines, vim.split(text, '\n'))
     table.insert(lines, '</text>')
     return lines
   end
@@ -989,7 +984,7 @@ H.info_window_lines = function(info_id)
   local doc = lsp_completion_item.documentation
   if doc then
     local lines = vim.lsp.util.convert_input_to_markdown_lines(doc)
-    return vim.lsp.util.trim_empty_lines(lines)
+    return H.normalize_lines(lines)
   end
 
   -- Finally, try request to resolve current completion to add documentation
@@ -1022,7 +1017,7 @@ H.info_window_options = function()
   local win_config = H.get_config().window.info
 
   -- Compute dimensions based on lines to be displayed
-  local lines = vim.api.nvim_buf_get_lines(H.info.bufnr, 0, -1, {})
+  local lines = vim.api.nvim_buf_get_lines(H.info.bufnr, 0, -1, false)
   local info_height, info_width = H.floating_dimensions(lines, win_config.height, win_config.width)
 
   -- Compute position
@@ -1030,10 +1025,12 @@ H.info_window_options = function()
   local left_to_pum = event.col - 1
   local right_to_pum = event.col + event.width + (event.scrollbar and 1 or 0)
 
-  local space_left, space_right = left_to_pum, vim.o.columns - right_to_pum
+  local border_offset = win_config.border == 'none' and 0 or 2
+  local space_left = left_to_pum - border_offset
+  local space_right = vim.o.columns - right_to_pum - border_offset
 
-  local anchor, col, space
   -- Decide side at which info window will be displayed
+  local anchor, col, space
   if info_width <= space_right or space_left <= space_right then
     anchor, col, space = 'NW', right_to_pum, space_right
   else
@@ -1104,25 +1101,20 @@ H.show_signature_window = function()
 
   -- Add `lines` to signature buffer. Use `wrap_at` to have proper width of
   -- 'non-UTF8' section separators.
-  vim.lsp.util.stylize_markdown(H.signature.bufnr, lines, { wrap_at = H.get_config().window.signature.width })
+  local buf_id = H.signature.bufnr
+  H.stylize_markdown(buf_id, lines, { wrap_at = H.get_config().window.signature.width })
 
   -- Add highlighting of active parameter
   for i, hl_range in ipairs(hl_ranges) do
     if not vim.tbl_isempty(hl_range) and hl_range.first and hl_range.last then
-      vim.api.nvim_buf_add_highlight(
-        H.signature.bufnr,
-        H.ns_id,
-        'MiniCompletionActiveParameter',
-        i - 1,
-        hl_range.first,
-        hl_range.last
-      )
+      local first, last = hl_range.first, hl_range.last
+      vim.api.nvim_buf_add_highlight(buf_id, H.ns_id, 'MiniCompletionActiveParameter', i - 1, first, last)
     end
   end
 
   -- If window is already opened and displays the same text, don't reopen it
   local cur_text = table.concat(lines, '\n')
-  if H.signature.winnr and cur_text == H.signature.text then return end
+  if H.signature.win_id and cur_text == H.signature.text then return end
 
   -- Cache lines for later checks if window should be reopened
   H.signature.text = cur_text
@@ -1179,7 +1171,7 @@ H.process_signature_response = function(response)
 
   -- Computing active parameter only when parameter id is inside bounds is not
   -- strictly based on specification, as currently (v3.16) it says to treat
-  -- out-of-bounds value as first parameter. However, some clients seems to use
+  -- out-of-bounds value as first parameter. However, some clients seem to use
   -- those values to indicate that nothing needs to be highlighted.
   -- Sources:
   -- https://github.com/microsoft/pyright/pull/1876
@@ -1194,9 +1186,7 @@ H.process_signature_response = function(response)
     if type(param_label) == 'string' then
       first, last = signature_label:find(vim.pesc(param_label))
       -- Make zero-indexed and end-exclusive
-      if first then
-        first, last = first - 1, last
-      end
+      if first then first = first - 1 end
     elseif type(param_label) == 'table' then
       first, last = unpack(param_label)
     end
@@ -1210,12 +1200,14 @@ end
 
 H.signature_window_opts = function()
   local win_config = H.get_config().window.signature
-  local lines = vim.api.nvim_buf_get_lines(H.signature.bufnr, 0, -1, {})
+  local lines = vim.api.nvim_buf_get_lines(H.signature.bufnr, 0, -1, false)
   local height, width = H.floating_dimensions(lines, win_config.height, win_config.width)
 
   -- Compute position
   local win_line = vim.fn.winline()
-  local space_above, space_below = win_line - 1, vim.fn.winheight(0) - win_line
+  local border_offset = win_config.border == 'none' and 0 or 2
+  local space_above = win_line - 1 - border_offset
+  local space_below = vim.api.nvim_win_get_height(0) - win_line - border_offset
 
   local anchor, row, space
   if height <= space_above or space_below <= space_above then
@@ -1249,7 +1241,7 @@ end
 
 -- Helpers for floating windows -----------------------------------------------
 H.ensure_buffer = function(cache, name)
-  if cache.bufnr then return end
+  if type(cache.bufnr) == 'number' and vim.api.nvim_buf_is_valid(cache.bufnr) then return end
 
   cache.bufnr = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_name(cache.bufnr, name)
@@ -1259,6 +1251,8 @@ end
 
 -- Returns tuple of height and width
 H.floating_dimensions = function(lines, max_height, max_width)
+  max_height, max_width = math.max(max_height, 1), math.max(max_width, 1)
+
   -- Simulate how lines will look in window with `wrap` and `linebreak`.
   -- This is not 100% accurate (mostly when multibyte characters are present
   -- manifesting into empty space at bottom), but does the job
@@ -1282,21 +1276,23 @@ H.floating_dimensions = function(lines, max_height, max_width)
   -- in case"
   width = math.min(width, max_width)
 
-  return height, width
+  return math.max(height, 1), math.max(width, 1)
 end
 
 H.open_action_window = function(cache, opts)
-  cache.winnr = vim.api.nvim_open_win(cache.bufnr, false, opts)
-  vim.api.nvim_win_set_option(cache.winnr, 'wrap', true)
-  vim.api.nvim_win_set_option(cache.winnr, 'linebreak', true)
-  vim.api.nvim_win_set_option(cache.winnr, 'breakindent', false)
+  cache.win_id = vim.api.nvim_open_win(cache.bufnr, false, opts)
+  vim.api.nvim_win_set_option(cache.win_id, 'wrap', true)
+  vim.api.nvim_win_set_option(cache.win_id, 'linebreak', true)
+  vim.api.nvim_win_set_option(cache.win_id, 'breakindent', false)
 end
 
 H.close_action_window = function(cache, keep_timer)
   if not keep_timer then cache.timer:stop() end
 
-  if cache.winnr then vim.api.nvim_win_close(cache.winnr, true) end
-  cache.winnr = nil
+  if type(cache.win_id) == 'number' and vim.api.nvim_win_is_valid(cache.win_id) then
+    vim.api.nvim_win_close(cache.win_id, true)
+  end
+  cache.win_id = nil
 
   -- For some reason 'buftype' might be reset. Ensure that buffer is scratch.
   if cache.bufnr then vim.fn.setbufvar(cache.bufnr, '&buftype', 'nofile') end
@@ -1308,14 +1304,36 @@ H.is_char_keyword = function(char)
   return vim.fn.match(char, '[[:keyword:]]') >= 0
 end
 
+-- NOTE: Might return `true` even if there is no visible completion popup, but
+-- built-in completion is still "active" (`<BS>` will show previous completion
+-- immediately).
 H.pumvisible = function() return vim.fn.pumvisible() > 0 end
 
-H.get_completion_start = function()
-  -- Compute start position of latest keyword (as in `vim.lsp.omnifunc`)
+H.get_completion_start = function(lsp_result)
   local pos = vim.api.nvim_win_get_cursor(0)
+
+  -- Prefer completion start from LSP response(s)
+  for _, response_data in pairs(lsp_result or {}) do
+    local server_start = H.get_completion_start_server(response_data, pos[1] - 1)
+    if server_start ~= nil then return server_start end
+  end
+
+  -- Fall back to start position of latest keyword
   local line = vim.api.nvim_get_current_line()
-  local line_to_cursor = line:sub(1, pos[2])
-  return vim.fn.match(line_to_cursor, '\\k*$')
+  return vim.fn.match(line:sub(1, pos[2]), '\\k*$')
+end
+
+H.get_completion_start_server = function(response_data, line_num)
+  if response_data.err or type(response_data.result) ~= 'table' then return end
+  local items = response_data.result.items or response_data.result
+  for _, item in pairs(items) do
+    if type(item.textEdit) == 'table' then
+      -- NOTE: As per LSP spec, `textEdit` can be either `TextEdit` or `InsertReplaceEdit`
+      local range = type(item.textEdit.range) == 'table' and item.textEdit.range or item.textEdit.insert
+      -- NOTE: Return immediately, ignoring possibly several conflicting starts
+      return range.start.character
+    end
+  end
 end
 
 H.is_whitespace = function(s)
@@ -1374,15 +1392,26 @@ H.get_left_char = function()
   return string.sub(line, col, col)
 end
 
-H.map = function(mode, key, rhs, opts)
-  if key == '' then return end
-
-  opts = vim.tbl_deep_extend('force', { noremap = true, silent = true }, opts or {})
-
-  -- Use mapping description only in Neovim>=0.7
-  if vim.fn.has('nvim-0.7') == 0 then opts.desc = nil end
-
-  vim.api.nvim_set_keymap(mode, key, rhs, opts)
+H.map = function(mode, lhs, rhs, opts)
+  if lhs == '' then return end
+  opts = vim.tbl_deep_extend('force', { silent = true }, opts or {})
+  vim.keymap.set(mode, lhs, rhs, opts)
 end
+
+H.normalize_lines = function(lines)
+  -- Enaure no newline characters and no leading/trailing empty lines
+  lines = table.concat(lines, '\n'):gsub('^\n+', ''):gsub('\n+$', '')
+  return vim.split(lines, '\n')
+end
+
+H.stylize_markdown = function(buf_id, lines, opts)
+  return vim.lsp.util.stylize_markdown(buf_id, H.normalize_lines(lines), opts)
+end
+
+-- TODO: Remove after compatibility with Neovim=0.9 is dropped
+H.islist = vim.fn.has('nvim-0.10') == 1 and vim.islist or vim.tbl_islist
+
+H.get_buf_lsp_clients = function() return vim.lsp.get_clients({ bufnr = 0 }) end
+if vim.fn.has('nvim-0.10') == 0 then H.get_buf_lsp_clients = function() return vim.lsp.buf_get_clients() end end
 
 return MiniCompletion

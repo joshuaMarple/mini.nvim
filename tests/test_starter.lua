@@ -19,7 +19,7 @@ local type_keys = function(...) return child.type_keys(...) end
 --stylua: ignore end
 
 -- Make helpers
-local is_starter_shown = function() return child.api.nvim_buf_get_option(0, 'filetype') == 'starter' end
+local is_starter_shown = function() return child.api.nvim_buf_get_option(0, 'filetype') == 'ministarter' end
 
 local validate_starter_shown = function() eq(is_starter_shown(), true) end
 
@@ -76,7 +76,7 @@ local example_itemstring = '{ '
   .. ' }'
 
 -- Output test set ============================================================
-T = new_set({
+local T = new_set({
   hooks = {
     pre_case = function()
       child.setup()
@@ -98,9 +98,11 @@ T['setup()']['creates side effects'] = function()
   eq(child.fn.exists('#MiniStarter'), 1)
 
   -- Highlight groups
+  child.cmd('hi clear')
+  load_module()
   local has_highlight = function(group, value) expect.match(child.cmd_capture('hi ' .. group), value) end
 
-  has_highlight('MiniStarterCurrent', 'cleared')
+  has_highlight('MiniStarterCurrent', 'links to MiniStarterItem')
   has_highlight('MiniStarterFooter', 'links to Title')
   has_highlight('MiniStarterHeader', 'links to Title')
   has_highlight('MiniStarterInactive', 'links to Comment')
@@ -158,7 +160,7 @@ T['open()']['works'] = function()
   child.lua('MiniStarter.open()')
 
   expect.no_equality(child.api.nvim_get_current_buf(), init_buf_id)
-  eq(child.api.nvim_buf_get_name(0), child.fn.getcwd() .. '/Starter')
+  eq(child.api.nvim_buf_get_name(0), child.fn.getcwd() .. package.config:sub(1, 1) .. 'Starter')
   validate_starter_shown()
 
   expect.match(table.concat(get_lines(), '\n'), 'Builtin actions')
@@ -172,7 +174,7 @@ T['open()']['sets buffer options'] = function()
   -- Open Starter buffer
   child.lua('MiniStarter.open()')
 
-  -- Should set essential buffer options (not all actualy set are tested)
+  -- Should set essential buffer options (not all actually set are tested)
   eq(child.bo.bufhidden, 'wipe')
   eq(child.bo.buflisted, false)
   eq(child.bo.buftype, 'nofile')
@@ -255,7 +257,7 @@ end
 
 T['open()']['makes buffer autocommands'] = function()
   child.lua('MiniStarter.open()')
-  expect.match(child.cmd_capture('au MiniStarterBuffer'), 'MiniStarter%.')
+  expect.match(child.cmd_capture('au MiniStarterBuffer'), '<buffer=%d')
 end
 
 T['open()']['respects `buf_id` argument'] = function()
@@ -285,6 +287,12 @@ T['open()']['creates unique buffer names'] = function()
   child.lua('MiniStarter.close()')
   child.lua('MiniStarter.open()')
   eq(vim.fn.fnamemodify(child.api.nvim_buf_get_name(0), ':t'), 'Starter_2')
+
+  -- Should not duplicate existing buffer name
+  local buf_id = child.api.nvim_create_buf(true, false)
+  child.api.nvim_buf_set_name(buf_id, child.fn.getcwd() .. '/Starter_3')
+  child.lua('MiniStarter.open()')
+  eq(child.api.nvim_buf_get_name(0), 'ministarter://3')
 end
 
 T['open()']['respects `vim.{g,b}.ministarter_disable`'] = new_set({
@@ -616,7 +624,7 @@ T['get_content()']['works'] = function()
   child.lua('MiniStarter.open()')
   child.expect_screenshot()
 
-  -- Every element of array should contain conent for a particular line
+  -- Every element of array should contain content for a particular line
   local content = child.lua_get('MiniStarter.get_content()')
   eq(content[1], { { hl = 'MiniStarterHeader', string = 'Hello', type = 'header' } })
   eq(content[2], { { string = '', type = 'empty' } })
@@ -665,8 +673,9 @@ T['content_to_lines()'] = new_set({
   },
 })
 
-T['content_to_lines()']['works'] =
-  function() eq(child.lua_get('MiniStarter.content_to_lines(MiniStarter.get_content())'), get_lines()) end
+T['content_to_lines()']['works'] = function()
+  eq(child.lua_get('MiniStarter.content_to_lines(MiniStarter.get_content())'), get_lines())
+end
 
 T['content_to_items()'] = new_set()
 
@@ -874,10 +883,12 @@ T['gen_hook']['padding()']['respects arguments'] = new_set({
 T['sections'] = new_set()
 
 T['sections']['works'] = function()
+  child.set_size(30, 60)
   child.lua([[MiniStarter.config.items = {
     MiniStarter.sections.builtin_actions,
     MiniStarter.sections.recent_files,
     MiniStarter.sections.sessions,
+    MiniStarter.sections.pick,
     MiniStarter.sections.telescope,
   }]])
   child.lua([[MiniStarter.config.header = '']])
@@ -888,23 +899,28 @@ end
 
 T['sections']['has correct items'] = function()
   local types = child.lua_get('vim.tbl_map(type, MiniStarter.sections)')
-  eq(types, { builtin_actions = 'function', recent_files = 'function', sessions = 'function', telescope = 'function' })
+  --stylua: ignore
+  eq(
+    types,
+    { builtin_actions = 'function', recent_files = 'function', sessions = 'function', pick = 'function', telescope = 'function' }
+  )
 end
 
 T['sections']['recent_files()'] = new_set()
 
 T['sections']['recent_files()']['correctly identifies files from current directory'] = function()
   local dir, dir_similar = 'tests/dir-starter/aaa', 'tests/dir-starter/aaabbb'
+  local file = dir_similar .. '/file'
   child.fn.mkdir(dir)
   child.fn.mkdir(dir_similar)
   MiniTest.finally(function()
-    vim.fn.delete(dir, 'rf')
-    vim.fn.delete(dir_similar, 'rf')
+    vim.loop.fs_rmdir(dir)
+    vim.loop.fs_unlink(file)
+    vim.loop.fs_rmdir(dir_similar)
   end)
 
   -- Make recent file with absolute path having current directory as substring
   -- but not inside current directory
-  local file = dir_similar .. '/file'
   child.fn.writefile({ '' }, file)
   child.v.oldfiles = { child.fn.fnamemodify(file, ':p') }
   child.cmd('cd ' .. dir)
@@ -918,27 +934,53 @@ end
 
 T['sections']['recent_files()']['respects files in subdirectories'] = function()
   local dir = 'tests/dir-starter/aaa'
-  local dir_nested = 'tests/dir-starter/aaa/bbb'
-  child.fn.mkdir(dir)
-  child.fn.mkdir(dir_nested)
+  local dir_nested = dir .. '/bbb'
+  local file, file_nested = dir .. '/file1', dir_nested .. '/file2'
+
+  child.fn.mkdir(dir_nested, 'p')
+  child.fn.writefile({ '' }, file)
+  child.fn.writefile({ '' }, file_nested)
   MiniTest.finally(function()
-    vim.fn.delete(dir, 'rf')
-    vim.fn.delete(dir_nested, 'rf')
+    vim.loop.fs_unlink(file_nested)
+    vim.loop.fs_rmdir(dir_nested)
+    vim.loop.fs_unlink(file)
+    vim.loop.fs_rmdir(dir)
   end)
 
-  local file1 = dir .. '/file1'
-  child.fn.writefile({ '' }, file1)
-  local file2 = dir_nested .. '/file2'
-  child.fn.writefile({ '' }, file2)
-
-  child.v.oldfiles = { child.fn.fnamemodify(file1, ':p'), child.fn.fnamemodify(file2, ':p') }
+  child.v.oldfiles = { child.fn.fnamemodify(file, ':p'), child.fn.fnamemodify(file_nested, ':p') }
   child.cmd('cd ' .. dir)
+
+  -- Mock forward slash for more robust screenshot testing
+  child.lua([[
+    local fnamemodify_orig = vim.fn.fnamemodify
+    vim.fn.fnamemodify = function(...) return fnamemodify_orig(...):gsub('\\', '/') end
+  ]])
 
   -- Set up to show files only in current directory
   child.lua('MiniStarter.config.items = { MiniStarter.sections.recent_files(5, true, true) }')
   child.lua('MiniStarter.open()')
   -- "Recent files" section should show both files
   child.expect_screenshot()
+end
+
+T['sections']['recent_files()']['respects `show_path`'] = function()
+  local test_file = 'tests/dir-starter/aaa.txt'
+  child.fn.writefile({ '' }, test_file)
+  MiniTest.finally(function() vim.loop.fs_unlink(test_file) end)
+
+  child.v.oldfiles = { child.fn.fnamemodify(test_file, ':p') }
+
+  child.lua([[MiniStarter.config.items = {
+    MiniStarter.sections.recent_files(5, false, function() return '__hello__' end ),
+  }]])
+  child.lua('MiniStarter.open()')
+  child.expect_screenshot()
+
+  -- Should validate it
+  expect.error(
+    function() child.lua('MiniStarter.sections.recent_files(5, false, 1)') end,
+    '`show_path`.*boolean or callable'
+  )
 end
 
 -- Work with query ------------------------------------------------------------
@@ -1066,26 +1108,35 @@ T['Autoopening']['works'] = function()
 
   -- It should result into total single buffer
   eq(#child.api.nvim_list_bufs(), 1)
+
+  -- It should trigger `MiniStarterOpened` `User` event
+  eq(child.lua_get('_G.n_event'), 1)
 end
 
 T['Autoopening']['does not autoopen if Neovim started to show something'] = function()
   local init_autoopen = 'tests/dir-starter/init-files/test-init.lua'
+  local validate = function(...)
+    child.restart({ '-u', init_autoopen, ... })
+    validate_starter_not_shown()
+    eq(child.lua_get('_G.n_event'), 0)
+  end
 
-  -- Current buffer has any lines (something opened explicitly)
-  child.restart({ '-u', init_autoopen, '-c', [[call setline(1, 'a')]] })
-  validate_starter_not_shown()
+  -- There are files in arguments (like `nvim foo.txt` with new file).
+  validate('new-file.txt')
 
   -- Several buffers are listed (like session with placeholder buffers)
-  child.restart({ '-u', init_autoopen, '-c', 'e foo | set buflisted | e bar | set buflisted' })
-  validate_starter_not_shown()
+  validate('-c', 'e foo | set buflisted | e bar | set buflisted')
 
   -- Unlisted buffers (like from `nvim-tree`) don't affect decision
   child.restart({ '-u', init_autoopen, '-c', 'e foo | set nobuflisted | e bar | set buflisted' })
   validate_starter_shown()
+  eq(child.lua_get('_G.n_event'), 1)
 
-  -- There are files in arguments (like `nvim foo.txt` with new file).
-  child.restart({ '-u', init_autoopen, 'new-file.txt' })
-  validate_starter_not_shown()
+  -- Current buffer is meant to show something else
+  validate('-c', 'set filetype=text')
+
+  -- Current buffer has any lines (something opened explicitly)
+  validate('-c', [[call setline(1, 'a')]])
 end
 
 T['Querying'] = new_set()
@@ -1156,8 +1207,6 @@ T['Querying']['respects `config.evaluate_single`'] = function()
 end
 
 T['Querying']['works with `cmdheight=0`'] = function()
-  if child.fn.has('nvim-0.8') == 0 then return end
-
   child.set_size(20, 50)
   child.o.cmdheight = 0
   reload_module({ items = example_items })
@@ -1359,6 +1408,20 @@ T['Cursor positioning']['works with bullets'] = new_set({
   end,
 })
 
+T['Resize'] = new_set()
+
+T['Resize']['updates Starter buffer'] = function()
+  child.lua('MiniStarter.config.items = ' .. example_itemstring)
+  child.lua('MiniStarter.config.header = "Header"')
+  child.lua('MiniStarter.config.footer = "Footer"')
+
+  child.set_size(12, 20)
+  child.lua('MiniStarter.open()')
+
+  child.set_size(20, 40)
+  child.expect_screenshot()
+end
+
 T['Multiple buffers'] = new_set()
 
 T['Multiple buffers']['are allowed'] = function()
@@ -1376,7 +1439,7 @@ T['Multiple buffers']['are allowed'] = function()
   eq(vim.fn.fnamemodify(child.api.nvim_buf_get_name(0), ':t'), 'Starter_2')
 
   eq(child.api.nvim_buf_is_valid(buf_id_1), true)
-  eq(child.api.nvim_buf_get_option(buf_id_1, 'filetype'), 'starter')
+  eq(child.api.nvim_buf_get_option(buf_id_1, 'filetype'), 'ministarter')
   eq(get_active_items_names(), { 'aaab', 'aaba', 'abaa', 'baaa' })
 
   -- State of first Starter buffer should not be affected by second one

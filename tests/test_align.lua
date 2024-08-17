@@ -13,8 +13,7 @@ local get_cursor = function(...) return child.get_cursor(...) end
 local set_lines = function(...) return child.set_lines(...) end
 local get_lines = function(...) return child.get_lines(...) end
 local type_keys = function(...) return child.type_keys(...) end
-local poke_eventloop = function() child.api.nvim_eval('1') end
-local sleep = function(ms) vim.loop.sleep(ms); poke_eventloop() end
+local sleep = function(ms) helpers.sleep(ms, child) end
 --stylua: ignore end
 
 local set_config_steps = function(tbl)
@@ -51,8 +50,12 @@ local eq_tostring = function(var_name1, var_name2)
   eq(child.lua_get(cmd), true)
 end
 
+-- Time constants
+local helper_message_delay, error_message_force_delay = 1000, 500
+local small_time = helpers.get_time_const(10)
+
 -- Output test set
-T = new_set({
+local T = new_set({
   hooks = {
     pre_case = function()
       child.setup()
@@ -75,8 +78,9 @@ T['setup()']['creates `config` field'] = function()
 
   -- Check default values
   local expect_config = function(field, value) eq(child.lua_get('MiniAlign.config.' .. field), value) end
-  local expect_config_type =
-    function(field, type_val) eq(child.lua_get('type(MiniAlign.config.' .. field .. ')'), type_val) end
+  local expect_config_type = function(field, type_val)
+    eq(child.lua_get('type(MiniAlign.config.' .. field .. ')'), type_val)
+  end
 
   -- Check default values
   expect_config('mappings.start', 'ga')
@@ -140,15 +144,15 @@ T['setup()']['validates `config` argument'] = function()
 end
 
 T['setup()']['properly handles `config.mappings`'] = function()
-  local has_map = function(lhs) return child.cmd_capture('xmap ' .. lhs):find('MiniAlign') ~= nil end
-  eq(has_map('ga'), true)
+  local has_map = function(lhs, pattern) return child.cmd_capture('xmap ' .. lhs):find(pattern) ~= nil end
+  eq(has_map('ga', 'Align'), true)
 
   unload_module()
   child.api.nvim_del_keymap('x', 'ga')
 
   -- Supplying empty string should mean "don't create keymap"
   load_module({ mappings = { start = '' } })
-  eq(has_map('ga'), false)
+  eq(has_map('ga', 'Align'), false)
 end
 
 local validate_align_strings = function(input_strings, opts, ref_strings, steps)
@@ -158,16 +162,18 @@ end
 
 T['align_strings()'] = new_set()
 
-T['align_strings()']['works'] =
-  function() validate_align_strings({ 'a=b', 'aa=b' }, { split_pattern = '=' }, { 'a =b', 'aa=b' }) end
+T['align_strings()']['works'] = function()
+  validate_align_strings({ 'a=b', 'aa=b' }, { split_pattern = '=' }, { 'a =b', 'aa=b' })
+end
 
 T['align_strings()']['validates `strings` argument'] = function()
   expect.error(function() child.lua([[MiniAlign.align_strings({'a', 1})]]) end, 'string')
   expect.error(function() child.lua([[MiniAlign.align_strings('a')]]) end, 'array')
 end
 
-T['align_strings()']['respects `strings` argument'] =
-  function() validate_align_strings({ 'aaa=b', 'aa=b' }, { split_pattern = '=' }, { 'aaa=b', 'aa =b' }) end
+T['align_strings()']['respects `strings` argument'] = function()
+  validate_align_strings({ 'aaa=b', 'aa=b' }, { split_pattern = '=' }, { 'aaa=b', 'aa =b' })
+end
 
 T['align_strings()']['respects `opts` argument'] = function()
   -- Should take default values from `MiniAlign.config.options`
@@ -288,7 +294,7 @@ end
 T['align_strings()']['respects `steps.split` argument'] = function()
   local step_str, cmd
 
-  -- Action output should be parts or convertable to it.
+  -- Action output should be parts or convertible to it.
   step_str = [[MiniAlign.new_step('tmp', function(strings) return { { 'a', 'b' }, {'aa', 'b'} } end)]]
   cmd = string.format([[MiniAlign.align_strings({ 'a=b', 'aa=b' }, {}, { split = %s })]], step_str)
   eq(child.lua_get(cmd), { 'a b', 'aab' })
@@ -304,10 +310,10 @@ T['align_strings()']['respects `steps.split` argument'] = function()
   })
   validate_align_strings({ 'a,b', 'aa,b' }, {}, { 'a b', 'aab' })
 
-  -- Should validate that step's output is convertable to parts
+  -- Should validate that step's output is convertible to parts
   step_str = [[MiniAlign.new_step('tmp', function(strings) return { { 'a', 1 }, {'aa', 'b'} } end)]]
   cmd = string.format([[MiniAlign.align_strings({ 'a=b', 'aa=b' }, {}, { split = %s })]], step_str)
-  expect.error(child.lua, 'convertable to parts', cmd)
+  expect.error(child.lua, 'convertible to parts', cmd)
 
   -- Is called with `opts`
   step_str = [[MiniAlign.new_step('tmp', function(strings, opts) return MiniAlign.as_parts(opts.tmp) end)]]
@@ -826,6 +832,7 @@ T['gen_step']['default_split()']['works with special exclude patterns'] = functi
   validate_align_strings(lines, { split_pattern = '=', split_exclude_patterns = { '^a.*$' } }, output_lines)
 end
 
+--stylua: ignore
 T['gen_step']['default_split()']['matches inside forbidden spans do not affect split pattern recycling'] = function()
   validate_align_strings(
     { [[a,"b=b"=c,d]], 'aa,bb=cc,dd' },
@@ -1156,11 +1163,6 @@ local validate_keys = function(input_lines, keys, output_lines)
   eq(get_lines(), output_lines)
 end
 
--- NOTEs:
--- - In Neovim=0.5 some textobjects in Operator-pending mode don't set linewise
---   mode (like `ip`). However in Visual mode they do. So if Neovim=0.5 support
---   is needed, write tests with explicit forcing of linewise selection.
-
 T['Align'] = new_set()
 
 T['Align']['works'] = function()
@@ -1258,7 +1260,7 @@ T['Align']['registers visual selection'] = function()
   eq(child.fn.getpos('v'), { 0, 1, 1, 0 })
 end
 
-T['Align']['works with differnt mapping'] = function()
+T['Align']['works with different mapping'] = function()
   unload_module()
   child.api.nvim_del_keymap('n', 'ga')
   child.api.nvim_del_keymap('x', 'ga')
@@ -1319,7 +1321,7 @@ T['Align']['does not stop on error during modifier execution'] = function()
   local before_time = vim.loop.hrtime()
   type_keys('Vj', 'ga', 'e')
   local duration = 0.000001 * (vim.loop.hrtime() - before_time)
-  eq(500 <= duration and duration <= 510, true)
+  eq(error_message_force_delay <= duration and duration <= error_message_force_delay + 2 * small_time, true)
   expect.match(get_latest_message(), '^%(mini.align%) Modifier "e" should be properly callable%. Reason:')
 end
 
@@ -1335,11 +1337,12 @@ T['Align']['prompts helper message after one idle second'] = new_set({
   parametrize = { { 'Normal' }, { 'Visual' } },
 }, {
   test = function(test_mode)
-    -- Check this only on Neovim>=0.9, as there is a slight change in
-    -- highlighting command line area. Probably, after
-    -- https://github.com/neovim/neovim/pull/20476
-    if child.fn.has('nvim-0.9') == 0 then return end
+    -- Check this only on Neovim>=0.10, as there is a slight change in
+    -- highlighting command line area
+    if child.fn.has('nvim-0.10') == 0 then return end
+    helpers.skip_if_slow()
 
+    local expect_screenshot = function() child.expect_screenshot({ redraw = false }) end
     child.set_size(12, 20)
     child.o.cmdheight = 5
 
@@ -1349,29 +1352,29 @@ T['Align']['prompts helper message after one idle second'] = new_set({
     local keys = test_mode == 'Normal' and { 'ga', 'Vip' } or { 'Vip', 'ga' }
     type_keys(unpack(keys))
 
-    sleep(1000 - 15)
+    sleep(helper_message_delay - small_time)
     -- Should show no message
-    child.expect_screenshot()
+    expect_screenshot()
     type_keys('j')
     -- Should show message of modifier 'j'
-    child.expect_screenshot()
+    expect_screenshot()
     type_keys('r')
     -- Should show effect of hitting `r` and redraw if `showmode` is set (which
     -- it is by default)
-    sleep(1000 - 15)
+    sleep(helper_message_delay - small_time)
     -- Should still not show helper message
-    child.expect_screenshot()
-    sleep(15 + 15)
+    expect_screenshot()
+    sleep(small_time + small_time)
     -- Should now show helper message
-    child.expect_screenshot()
+    expect_screenshot()
 
     -- Should show message immediately if it was already shown
     type_keys('j', 'c')
-    child.expect_screenshot()
+    expect_screenshot()
 
     -- Ending alignment should remove shown message
     type_keys('_')
-    child.expect_screenshot()
+    expect_screenshot()
   end,
 })
 
@@ -1382,7 +1385,7 @@ T['Align']['helper message does not cause hit-enter-prompt'] = function()
   set_cursor(1, 0)
 
   type_keys('ga', 'Vj')
-  sleep(1000)
+  sleep(helper_message_delay + small_time)
   child.expect_screenshot()
 end
 
@@ -1457,7 +1460,7 @@ T['Align']['respects `config.silent`'] = function()
   set_cursor(1, 0)
   type_keys('Vip', 'ga')
 
-  sleep(1000 + 15)
+  sleep(helper_message_delay + small_time)
   child.expect_screenshot()
 end
 
@@ -1667,7 +1670,9 @@ T['Modifiers'] =
 T['Modifiers']['s'] = new_set()
 
 T['Modifiers']['s']['works'] = function()
-  init_preview_align(nil, { 'Vj', 'ga' })
+  set_lines({ 'a_b', 'aaa_b' })
+  set_cursor(1, 0)
+  type_keys('ga', 'ip')
 
   type_keys('s')
   child.expect_screenshot()
@@ -1730,7 +1735,9 @@ end
 T['Modifiers']['m'] = new_set()
 
 T['Modifiers']['m']['works'] = function()
-  init_preview_align(nil, { 'Vj', 'ga' })
+  set_lines({ 'a_b', 'aaa_b' })
+  set_cursor(1, 0)
+  type_keys('ga', 'ip')
 
   type_keys('m')
   child.expect_screenshot()
@@ -1758,7 +1765,9 @@ end
 T['Modifiers']['f'] = new_set()
 
 T['Modifiers']['f']['works'] = function()
-  init_preview_align({ 'a_b', 'aa_b', 'aaa_b' }, { 'V2j', 'ga' })
+  set_lines({ 'a_b', 'aa_b', 'aaa_b' })
+  set_cursor(1, 0)
+  type_keys('ga', 'ip')
 
   type_keys('f')
   child.expect_screenshot()

@@ -11,8 +11,7 @@ local unload_module = function() child.mini_unload('cursorword') end
 local set_cursor = function(...) return child.set_cursor(...) end
 local set_lines = function(...) return child.set_lines(...) end
 local type_keys = function(...) return child.type_keys(...) end
-local poke_eventloop = function() child.api.nvim_eval('1') end
-local sleep = function(ms) vim.loop.sleep(ms); poke_eventloop() end
+local sleep = function(ms) helpers.sleep(ms, child, true) end
 --stylua: ignore end
 
 -- Make helpers
@@ -39,10 +38,12 @@ end
 -- Data =======================================================================
 local example_lines = { 'aa', 'aa', 'aaa' }
 
-local test_times = { delay = 100 }
+-- Time constants
+local default_delay = 100
+local small_time = helpers.get_time_const(10)
 
 -- Output test set ============================================================
-T = new_set({
+local T = new_set({
   hooks = {
     pre_case = function()
       child.setup()
@@ -62,10 +63,9 @@ T['setup()']['creates side effects'] = function()
   -- Autocommand group
   eq(child.fn.exists('#MiniCursorword'), 1)
 
-  -- Autocommand on `ModeChanged` event
-  if child.fn.has('nvim-0.7.0') == 1 then eq(child.fn.exists('#MiniCursorword#ModeChanged'), 1) end
-
   -- Highlight groups
+  child.cmd('hi clear')
+  load_module()
   expect.match(child.cmd_capture('hi MiniCursorword'), 'gui=underline')
   expect.match(child.cmd_capture('hi MiniCursorwordCurrent'), 'links to MiniCursorword')
 end
@@ -98,6 +98,19 @@ T['setup()']['defines non-linked default highlighting on `ColorScheme`'] = funct
   child.cmd('colorscheme blue')
   expect.match(child.cmd_capture('hi MiniCursorword'), 'gui=underline')
   expect.match(child.cmd_capture('hi MiniCursorwordCurrent'), 'links to MiniCursorword')
+end
+
+T['setup()']['properly resets module highlighting'] = function()
+  child.lua('MiniCursorword.config.delay = 0')
+  set_lines({ 'aa a aaa aa a aaa', 'a aa aaa a aa aaa' })
+  set_cursor(1, 0)
+  eq(#child.fn.getmatches(), 2)
+
+  child.lua([[package.loaded['mini.cursorword'] = nil]])
+  load_module({ delay = 0 })
+  eq(#child.fn.getmatches(), 0)
+  set_cursor(2, 0)
+  eq(#child.fn.getmatches(), 2)
 end
 
 -- Integration tests ==========================================================
@@ -137,6 +150,7 @@ T['Highlighting']['works with multiple windows'] = function()
 end
 
 T['Highlighting']['can stop'] = function()
+  child.set_size(5, 15)
   type_keys('i')
   child.expect_screenshot()
 end
@@ -150,27 +164,27 @@ T['Autohighlighting'] = new_set({
 local validate_cursorword = function(delay)
   set_cursor(2, 0)
   eq(word_is_highlighted('aa'), false)
-  sleep(delay - 10)
+  sleep(delay - small_time)
   eq(word_is_highlighted('aa'), false)
-  sleep(10)
+  sleep(small_time)
   eq(word_is_highlighted('aa'), true)
 end
 
-T['Autohighlighting']['works'] = function() validate_cursorword(test_times.delay) end
+T['Autohighlighting']['works'] = function() validate_cursorword(default_delay) end
 
 T['Autohighlighting']['respects `config.delay`'] = function()
-  child.lua('MiniCursorword.config.delay = 200')
-  validate_cursorword(200)
+  child.lua('MiniCursorword.config.delay = ' .. (3 * default_delay))
+  validate_cursorword(3 * default_delay)
 
   -- Should also use buffer local config
   set_cursor(3, 0)
-  child.b.minicursorword_config = { delay = 50 }
-  validate_cursorword(50)
+  child.b.minicursorword_config = { delay = default_delay }
+  validate_cursorword(default_delay)
 end
 
 T['Autohighlighting']['removes highlight immediately after move'] = function()
   set_cursor(2, 0)
-  sleep(test_times.delay)
+  sleep(default_delay)
   eq(word_is_highlighted('aa'), true)
   set_cursor(3, 0)
   eq(child.fn.getmatches(), {})
@@ -178,12 +192,12 @@ end
 
 local validate_immediate = function(move_command)
   set_cursor(2, 0)
-  sleep(test_times.delay)
+  sleep(default_delay)
   eq(word_is_highlighted('aa'), true)
 
   local match_gen = get_match('MiniCursorword')
   child.cmd(move_command)
-  sleep(0)
+  child.poke_eventloop()
   eq(word_is_highlighted('aa'), true)
 
   -- Check that general match group didn't change (as word is same)
@@ -192,8 +206,7 @@ end
 
 T['Autohighlighting']['highlights immediately inside current word'] = function() validate_immediate('normal! l') end
 
-T['Autohighlighting']['highlights immediately same word in other place'] =
-  function() validate_immediate('normal! k') end
+T['Autohighlighting']['highlights immediately same word in other place'] = function() validate_immediate('normal! k') end
 
 T['Autohighlighting']['highlights only "keyword" symbols'] = function()
   local validate_highlighted = function(cursor_pos, hl_word)
@@ -221,7 +234,7 @@ end
 
 T['Autohighlighting']['stops in Insert mode'] = function()
   set_cursor(2, 0)
-  sleep(test_times.delay)
+  sleep(default_delay)
   eq(word_is_highlighted('aa'), true)
   type_keys('i')
   eq(word_is_highlighted('aa'), false)
@@ -229,15 +242,13 @@ end
 
 T['Autohighlighting']['stops in Terminal mode'] = function()
   set_cursor(2, 0)
-  sleep(test_times.delay)
+  sleep(default_delay)
   eq(word_is_highlighted('aa'), true)
   child.cmd('doautocmd TermEnter')
   eq(word_is_highlighted('aa'), false)
 end
 
 T['Autohighlighting']['respects ModeChanged'] = function()
-  if child.fn.exists('##ModeChanged') ~= 1 then return end
-
   -- Add disabling in Visual mode
   unload_module()
   child.cmd([[
@@ -267,13 +278,32 @@ T['Autohighlighting']['respects `vim.{g,b}.minicursorword_disable`'] = new_set({
 
     child[var_type].minicursorword_disable = true
     set_cursor(1, 0)
-    sleep(test_times.delay)
+    sleep(default_delay)
     eq(word_is_highlighted('aa'), false)
 
     child[var_type].minicursorword_disable = false
     set_cursor(1, 1)
-    sleep(test_times.delay)
+    sleep(default_delay)
     eq(word_is_highlighted('aa'), true)
+  end,
+})
+
+T['Autohighlighting']['respects deferred `vim.{g,b}.minicursorword_disable`'] = new_set({
+  parametrize = { { 'g' }, { 'b' } },
+}, {
+  test = function(var_type)
+    set_cursor(1, 1)
+
+    local lua_cmd = string.format(
+      'vim.defer_fn(function() vim.%s.minicursorword_disable = true end, %d)',
+      var_type,
+      math.floor(0.5 * default_delay)
+    )
+    child.lua(lua_cmd)
+    set_cursor(1, 0)
+
+    sleep(default_delay)
+    eq(word_is_highlighted('aa'), false)
   end,
 })
 

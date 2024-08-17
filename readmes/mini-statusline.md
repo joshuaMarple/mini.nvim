@@ -6,8 +6,6 @@
 
 ### Minimal and fast statusline module with opinionated default look
 
-For full experience needs [Nerd font](https://www.nerdfonts.com/), [lewis6991/gitsigns.nvim](https://github.com/lewis6991/gitsigns.nvim) plugin, and [nvim-tree/nvim-web-devicons](https://github.com/nvim-tree/nvim-web-devicons) plugin (but works without any of them).
-
 See more details in [Features](#features) and [help file](../doc/mini-statusline.txt).
 
 ---
@@ -34,6 +32,14 @@ https://user-images.githubusercontent.com/24854248/173045208-42463c8f-a2ac-488d-
 - Built-in active mode indicator with colors.
 - Sections can hide information when window is too narrow (specific window width is configurable per section).
 
+## Dependencies
+
+For full experience needs (still works without any of suggestions):
+
+- [Nerd font](https://www.nerdfonts.com/) and enabled ['mini.icons'](https://github.com/echasnovski/mini.nvim/blob/main/readmes/mini-icons.md) module to show filetype icons. Can fall back to using [nvim-tree/nvim-web-devicons](https://github.com/nvim-tree/nvim-web-devicons) plugin.
+
+- Enabled ['mini.git'](https://github.com/echasnovski/mini.nvim/blob/main/readmes/mini-git.md) and ['mini.diff'](https://github.com/echasnovski/mini.nvim/blob/main/readmes/mini-diff.md) modules to show Git and diff related information. Can fall back to using [lewis6991/gitsigns.nvim](https://github.com/lewis6991/gitsigns.nvim) plugin.
+
 ## Installation
 
 This plugin can be installed as part of 'mini.nvim' library (**recommended**) or as a standalone Git repository.
@@ -44,6 +50,32 @@ There are two branches to install from:
 - `stable` will be updated only upon releases with code tested during public beta-testing phase in `main` branch.
 
 Here are code snippets for some common installation methods (use only one):
+
+<details>
+<summary>With <a href="https://github.com/echasnovski/mini.nvim/blob/main/readmes/mini-deps.md">mini.deps</a></summary>
+<table>
+    <thead>
+        <tr>
+            <th>Github repo</th>
+            <th>Branch</th> <th>Code snippet</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td rowspan=2>'mini.nvim' library</td> <td>Main</td> <td rowspan=2><i>Follow recommended 'mini.deps' installation</i></td>
+        </tr>
+        <tr>
+            <td>Stable</td>
+        </tr>
+        <tr>
+            <td rowspan=2>Standalone plugin</td> <td>Main</td> <td><code>add('echasnovski/mini.statusline')</code></td>
+        </tr>
+        <tr>
+            <td>Stable</td> <td><code>add({ source = 'echasnovski/mini.statusline', checkout = 'stable' })</code></td>
+        </tr>
+    </tbody>
+</table>
+</details>
 
 <details>
 <summary>With <a href="https://github.com/folke/lazy.nvim">folke/lazy.nvim</a></summary>
@@ -68,33 +100,6 @@ Here are code snippets for some common installation methods (use only one):
         </tr>
         <tr>
             <td>Stable</td> <td><code>{ 'echasnovski/mini.statusline', version = '*' },</code></td>
-        </tr>
-    </tbody>
-</table>
-</details>
-
-<details>
-<summary>With <a href="https://github.com/wbthomason/packer.nvim">wbthomason/packer.nvim</a></summary>
-<table>
-    <thead>
-        <tr>
-            <th>Github repo</th>
-            <th>Branch</th> <th>Code snippet</th>
-        </tr>
-    </thead>
-    <tbody>
-        <tr>
-            <td rowspan=2>'mini.nvim' library</td>
-            <td>Main</td> <td><code>use 'echasnovski/mini.nvim'</code></td>
-        </tr>
-        <tr>
-            <td>Stable</td> <td><code>use { 'echasnovski/mini.nvim', branch = 'stable' }</code></td>
-        </tr>
-        <tr>
-            <td rowspan=2>Standalone plugin</td> <td>Main</td> <td><code>use 'echasnovski/mini.statusline'</code></td>
-        </tr>
-        <tr>
-            <td>Stable</td> <td><code>use { 'echasnovski/mini.statusline', branch = 'stable' }</code></td>
         </tr>
     </tbody>
 </table>
@@ -152,9 +157,7 @@ Here are code snippets for some common installation methods (use only one):
   -- Whether to use icons by default
   use_icons = true,
 
-  -- Whether to set Vim's settings for statusline (make it always shown with
-  -- 'laststatus' set to 2). To use global statusline in Neovim>=0.7.0, set
-  -- this to `false` and 'laststatus' to 3.
+  -- Whether to set Vim's settings for statusline (make it always shown)
   set_vim_settings = true,
 }
 ```
@@ -162,4 +165,3 @@ Here are code snippets for some common installation methods (use only one):
 ## Similar plugins
 
 - [nvim-lualine/lualine.nvim](https://github.com/nvim-lualine/lualine.nvim)
-- [famiu/feline.nvim](https://github.com/famiu/feline.nvim)

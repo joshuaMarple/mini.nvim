@@ -12,14 +12,8 @@ local set_cursor = function(...) return child.set_cursor(...) end
 local get_cursor = function(...) return child.get_cursor(...) end
 local set_lines = function(...) return child.set_lines(...) end
 local type_keys = function(...) return child.type_keys(...) end
-local poke_eventloop = function() child.api.nvim_eval('1') end
-local sleep = function(ms) vim.loop.sleep(ms); poke_eventloop() end
+local sleep = function(ms) helpers.sleep(ms, child, true) end
 --stylua: ignore end
-
--- TODO: Remove after compatibility with Neovim<=0.6 is dropped
-local skip_on_old_neovim = function()
-  if child.fn.has('nvim-0.7') == 0 then MiniTest.skip() end
-end
 
 local get_virt_cursor = function()
   local pos = child.fn.getcurpos()
@@ -87,11 +81,6 @@ local create_openclose_test_winconfig = function()
 end
 
 -- Data =======================================================================
-local test_times = { total_timing = 250 }
-
-local step_time = 40
-local small_time = 5
-
 --stylua: ignore
 local example_scroll_lines = {
   'aaaa', 'bbbb', 'cccc', 'dddd', 'eeee',
@@ -106,12 +95,19 @@ local example_scroll_lines_2 = {
   'KKKK', 'LLLL', 'MMMM', 'NNNN', 'OOOO',
 }
 
+-- Time constants
+local default_total_time = 250
+local step_time = helpers.get_time_const(40)
+local small_time = helpers.get_time_const(10)
+
 -- Output test set ============================================================
-T = new_set({
+local T = new_set({
   hooks = {
     pre_case = function()
       child.setup()
       load_module()
+
+      child.lua('_G.step_time, _G.small_time = ' .. step_time .. ', ' .. small_time)
     end,
     post_once = child.stop,
   },
@@ -128,6 +124,8 @@ T['setup()']['creates side effects'] = function()
   eq(child.fn.exists('#MiniAnimate'), 1)
 
   -- Highlight groups
+  child.cmd('hi clear')
+  load_module()
   expect.match(child.cmd_capture('hi MiniAnimateCursor'), 'gui=reverse,nocombine')
 end
 
@@ -136,8 +134,9 @@ T['setup()']['creates `config` field'] = function()
 
   -- Check default values
   local expect_config = function(field, value) eq(child.lua_get('MiniAnimate.config.' .. field), value) end
-  local expect_config_function =
-    function(field) eq(child.lua_get('type(MiniAnimate.config.' .. field .. ')'), 'function') end
+  local expect_config_function = function(field)
+    eq(child.lua_get('type(MiniAnimate.config.' .. field .. ')'), 'function')
+  end
 
   expect_config('cursor.enable', true)
   expect_config_function('cursor.timing')
@@ -221,9 +220,9 @@ T['is_active()']['works for `cursor`'] = function()
   set_cursor(1, 0)
   type_keys('2j')
   eq(is_active('cursor'), true)
-  sleep(test_times.total_timing - 20)
+  sleep(default_total_time - small_time)
   eq(is_active('cursor'), true)
-  sleep(20 + 10)
+  sleep(small_time + 3 * small_time)
   eq(is_active('cursor'), false)
 end
 
@@ -234,9 +233,9 @@ T['is_active()']['works for `scroll`'] = function()
   set_cursor(1, 0)
   type_keys('<C-f>')
   eq(is_active('scroll'), true)
-  sleep(test_times.total_timing - 20)
+  sleep(default_total_time - small_time)
   eq(is_active('scroll'), true)
-  sleep(20 + 10)
+  sleep(small_time + 3 * small_time)
   eq(is_active('scroll'), false)
 end
 
@@ -245,9 +244,9 @@ T['is_active()']['works for `resize`'] = function()
 
   type_keys('<C-w>v', '<C-w>|')
   eq(is_active('resize'), true)
-  sleep(test_times.total_timing - 20)
+  sleep(default_total_time - small_time)
   eq(is_active('resize'), true)
-  sleep(20 + 20)
+  sleep(small_time + 3 * small_time)
   eq(is_active('resize'), false)
 end
 
@@ -258,20 +257,20 @@ T['is_active()']['works for `open`/`close`'] = function()
   type_keys('<C-w>v')
   eq(is_active('open'), true)
   eq(is_active('close'), false)
-  sleep(test_times.total_timing - 20)
+  sleep(default_total_time - small_time)
   eq(is_active('open'), true)
   eq(is_active('close'), false)
-  sleep(20 + 10)
+  sleep(small_time + 3 * small_time)
   eq(is_active('open'), false)
   eq(is_active('close'), false)
 
   child.cmd('quit')
   eq(is_active('open'), false)
   eq(is_active('close'), true)
-  sleep(test_times.total_timing - 20)
+  sleep(default_total_time - small_time)
   eq(is_active('open'), false)
   eq(is_active('close'), true)
-  sleep(20 + 10)
+  sleep(small_time + 3 * small_time)
   eq(is_active('open'), false)
   eq(is_active('close'), false)
 end
@@ -284,8 +283,6 @@ T['execute_after()']['works immediately'] = function()
 end
 
 T['execute_after()']['works after animation is done'] = function()
-  skip_on_old_neovim()
-
   child.set_size(5, 80)
   child.api.nvim_set_keymap(
     'n',
@@ -300,9 +297,9 @@ T['execute_after()']['works after animation is done'] = function()
 
   type_keys('n')
   eq(child.g.been_here, vim.NIL)
-  sleep(test_times.total_timing - 20)
+  sleep(default_total_time - small_time)
   eq(child.g.been_here, vim.NIL)
-  sleep(20 + 10)
+  sleep(small_time + small_time)
   eq(child.g.been_here, true)
 end
 
@@ -321,28 +318,28 @@ T['animate()'] = new_set()
 T['animate()']['works'] = function()
   child.lua('_G.action_history = {}')
   child.lua('_G.step_action = function(step) table.insert(_G.action_history, step); return step < 3 end')
-  child.lua('_G.step_timing = function(step) return 25 * step end')
+  child.lua('_G.step_timing = function(step) return _G.step_time * step end')
 
   child.lua([[MiniAnimate.animate(_G.step_action, _G.step_timing)]])
   -- It should execute the following order:
   -- Action (step 0) - wait (step 1) - action (step 1) - ...
-  -- So here it should be:
+  -- So here it should be (with `step_time = 25`):
   -- 0 ms - `action(0)`
   -- 25(=`timing(1)`) ms - `action(1)`
   -- 75 ms - `action(2)`
   -- 150 ms - `action(3)` and stop
   eq(child.lua_get('_G.action_history'), { 0 })
-  sleep(25 - small_time)
+  sleep(step_time - small_time)
   eq(child.lua_get('_G.action_history'), { 0 })
   sleep(small_time)
   eq(child.lua_get('_G.action_history'), { 0, 1 })
 
-  sleep(50 - small_time)
+  sleep(2 * step_time - small_time)
   eq(child.lua_get('_G.action_history'), { 0, 1 })
   sleep(small_time)
   eq(child.lua_get('_G.action_history'), { 0, 1, 2 })
 
-  sleep(75 - small_time)
+  sleep(3 * step_time - small_time)
   eq(child.lua_get('_G.action_history'), { 0, 1, 2 })
   sleep(small_time)
   eq(child.lua_get('_G.action_history'), { 0, 1, 2, 3 })
@@ -350,25 +347,30 @@ end
 
 T['animate()']['respects `opts.max_steps`'] = function()
   child.lua('_G.step_action = function(step) _G.latest_step = step; return step < 1000 end')
-  child.lua('MiniAnimate.animate(_G.step_action, function() return 10 end, { max_steps = 2 })')
-  sleep(10 * 2 + 5)
+  child.lua('MiniAnimate.animate(_G.step_action, function() return _G.step_time end, { max_steps = 2 })')
+  sleep(step_time * 2 + small_time)
   eq(child.lua_get('_G.latest_step'), 2)
 end
 
 T['animate()']['handles step times less than 1 ms'] = function()
-  child.lua('_G.step_action = function(step) _G.latest_step = step; return step < 5 end')
+  child.lua('_G.step_action = function(step) _G.latest_step = step; return step < 3 end')
   child.lua('MiniAnimate.animate(_G.step_action, function() return 0.1 end)')
 
-  -- All steps should be executed immediately
-  eq(child.lua_get('_G.latest_step'), 5)
+  -- All steps should be executed almost immediately (respectnig `libuv` loops)
+  child.poke_eventloop()
+  child.poke_eventloop()
+  child.poke_eventloop()
+  eq(child.lua_get('_G.latest_step'), 3)
 end
 
 T['animate()']['handles non-integer step times'] = function()
+  local new_step_time = 0.91 * step_time
+  child.lua('_G.new_step_time = ' .. new_step_time)
   -- It should accumulate fractional parts, not discard them
   child.lua('_G.step_action = function(step) _G.latest_step = step; return step < 10 end')
-  child.lua('MiniAnimate.animate(_G.step_action, function() return 1.9 end)')
+  child.lua('MiniAnimate.animate(_G.step_action, function() return _G.new_step_time end)')
 
-  sleep(19 - small_time)
+  sleep(10 * new_step_time - small_time)
   eq(child.lua_get('_G.latest_step') < 10, true)
 
   sleep(small_time + small_time)
@@ -703,8 +705,9 @@ end
 
 T['gen_subscroll'] = new_set()
 
-local validate_subscroll =
-  function(total_scroll, output) eq(child.lua_get('_G.test_subscroll(...)', { total_scroll }), output) end
+local validate_subscroll = function(total_scroll, output)
+  eq(child.lua_get('_G.test_subscroll(...)', { total_scroll }), output)
+end
 
 T['gen_subscroll']['equal()'] = new_set()
 
@@ -1263,7 +1266,7 @@ T['Cursor']['stops on buffer change'] = function()
 
   set_cursor(5, 0)
   child.expect_screenshot()
-  sleep(step_time + small_time)
+  sleep(step_time)
   child.expect_screenshot()
   sleep(step_time)
   child.expect_screenshot()
@@ -1313,10 +1316,10 @@ T['Cursor']['correctly calls `timing`'] = function()
   child.lua('_G.args_history = {}')
   child.lua([[MiniAnimate.config.cursor.timing = function(s, n)
     table.insert(_G.args_history, { s = s, n = n })
-    return 10
+    return _G.step_time
   end]])
   set_cursor(5, 0)
-  sleep(10 * 5)
+  sleep(step_time * 5 + small_time)
   eq(child.lua_get('_G.args_history'), { { s = 1, n = 4 }, { s = 2, n = 4 }, { s = 3, n = 4 }, { s = 4, n = 4 } })
 end
 
@@ -1455,7 +1458,7 @@ T['Scroll']['works when movement is triggered by outside command'] = function()
 end
 
 T['Scroll']['allows immediate another scroll animation'] = function()
-  -- This should also properly restore some termporary set options
+  -- This should also properly restore some temporary set options
   child.o.scrolloff, child.o.virtualedit = 1, 'block'
 
   type_keys('10<C-e>')
@@ -1514,7 +1517,7 @@ T['Scroll']["respects global 'scrolloff'"] = function()
 end
 
 T['Scroll']["respects window-local 'scrolloff'"] = function()
-  child.cmd('setlocal scrolloff=1')
+  child.wo.scrolloff = 1
   type_keys('L')
 
   type_keys('<C-d>')
@@ -1538,7 +1541,7 @@ T['Scroll']["respects 'virtualedit'"] = function()
   eq(child.o.virtualedit, 'block')
 
   -- Window-local
-  child.cmd('setlocal virtualedit=onemore')
+  child.wo.virtualedit = 'onemore'
 
   type_keys('<C-u>')
   sleep(3 * step_time + small_time)
@@ -1548,6 +1551,7 @@ T['Scroll']["respects 'virtualedit'"] = function()
 end
 
 T['Scroll']["respects 'scrolloff' in presence of folds"] = function()
+  if child.fn.has('nvim-0.10') == 0 then MiniTest.skip('Screenshots are generated for Neovim>=0.10') end
   set_cursor(6, 0)
   type_keys('zf5j')
   set_cursor(1, 0)
@@ -1655,7 +1659,7 @@ T['Scroll']['correctly places cursor in presence of tabs'] = function()
   validate(5, { 5, 0 })
 end
 
-T['Scroll']['can place intermideate cursor outside of line'] = function()
+T['Scroll']['can place intermediate cursor outside of line'] = function()
   set_lines({ 'aaaa', 'a', '', '', '', '', '', 'a', 'aaaa' })
   set_cursor(1, 3)
 
@@ -1670,7 +1674,7 @@ T['Scroll']['can place intermideate cursor outside of line'] = function()
   eq(get_virt_cursor(), { 9, 3 })
 end
 
-T['Scroll']['places cursor on edge lines if intermideate target is not visible'] = function()
+T['Scroll']['places cursor on edge lines if intermediate target is not visible'] = function()
   child.lua('MiniAnimate.config.scroll.subscroll = function(total_scroll) return { 1, total_scroll - 1 } end')
 
   local many_lines = { 'aaaa' }
@@ -1769,6 +1773,25 @@ T['Scroll']['works properly just after window change'] = function()
   child.expect_screenshot()
 end
 
+T['Scroll']['works properly inside terminal'] = function()
+  -- Start functioning terminal buffer
+  child.cmd('enew')
+  local job_id = child.fn.termopen('env -i bash --norc --noprofile')
+  child.fn.jobwait({ job_id }, 1000)
+
+  -- Echo many lines of text so that window view is completely different
+  -- compared with what was at Terminal mode start
+  local many_lines = string.rep([[a\n]], 20)
+  type_keys(10, 'i', 'echo -e "' .. many_lines .. '"', '<CR>')
+  sleep(step_time)
+
+  -- There should not be any scroll animation after exiting Terminal mode
+  local init_line = child.fn.line('w0')
+  type_keys([[<C-\>]], '<C-n>')
+  sleep(2 * step_time)
+  eq(child.fn.line('w0'), init_line)
+end
+
 T['Scroll']['does not automatically animate after buffer change'] = function()
   local init_buf_id = child.api.nvim_get_current_buf()
   set_cursor(5, 0)
@@ -1791,16 +1814,29 @@ T['Scroll']["does not automatically animate result of 'incsearch'"] = function()
   -- Should work for search with `/`
   type_keys('/', 'oo', '<CR>')
   child.expect_screenshot()
-  sleep(step_time + 10)
+  sleep(step_time + small_time)
   -- Should be the same
   child.expect_screenshot()
 
   -- Should work for search with `?`
   type_keys('?', 'aa', '<CR>')
   child.expect_screenshot()
-  sleep(step_time + 10)
+  sleep(step_time + small_time)
   -- Should be the same
   child.expect_screenshot()
+end
+
+T['Scroll']['does not animate in Select mode'] = function()
+  child.set_size(5, 15)
+  child.cmd('smap <M-m> <Cmd>call winrestview({ "topline": 3 })<CR>')
+
+  set_cursor(4, 0)
+  type_keys('v<C-g>')
+  eq(child.fn.mode(), 's')
+
+  type_keys('<M-m>')
+  child.expect_screenshot()
+  eq(child.fn.mode(), 's')
 end
 
 T['Scroll']['handles mappings with <Cmd><CR>'] = function()
@@ -1834,7 +1870,7 @@ end
 
 T['Scroll']['works with different keys']['zb'] = function()
   type_keys('2<C-e>')
-  sleep(step_time * 2 + 10)
+  sleep(step_time * 2 + small_time)
   set_cursor(6, 0)
   validate_topline(3)
 
@@ -1894,7 +1930,8 @@ T['Scroll']['works with different keys']['G'] = function()
   sleep(step_time)
   validate_topline(3)
 
-  sleep(step_time * 6 + 2)
+  sleep(small_time)
+  sleep(step_time * 6)
   validate_topline(9)
   sleep(step_time)
   validate_topline(10)
@@ -1915,11 +1952,11 @@ T['Scroll']['correctly calls `timing`'] = function()
   child.lua('_G.args_history = {}')
   child.lua([[MiniAnimate.config.scroll.timing = function(s, n)
     table.insert(_G.args_history, { s = s, n = n })
-    return 10
+    return _G.step_time
   end]])
 
   type_keys('4<C-e>')
-  sleep(10 * 4 + 5)
+  sleep(step_time * 4 + small_time)
   eq(child.lua_get('_G.args_history'), { { s = 1, n = 4 }, { s = 2, n = 4 }, { s = 3, n = 4 }, { s = 4, n = 4 } })
 end
 
@@ -2162,11 +2199,11 @@ T['Resize']['correctly calls `timing`'] = function()
   child.lua('_G.args_history = {}')
   child.lua([[MiniAnimate.config.resize.timing = function(s, n)
     table.insert(_G.args_history, { s = s, n = n })
-    return 10
+    return _G.step_time
   end]])
 
   type_keys('<C-w>|')
-  sleep(10 * 5 + 5)
+  sleep(step_time * 5 + small_time)
   eq(
     child.lua_get('_G.args_history'),
     { { s = 1, n = 5 }, { s = 2, n = 5 }, { s = 3, n = 5 }, { s = 4, n = 5 }, { s = 5, n = 5 } }
@@ -2275,51 +2312,55 @@ T['Open'] = new_set({
 
 --stylua: ignore
 T['Open']['works'] = function()
+  local win_id = child.fn.has('nvim-0.10') == 1 and 1002 or 1003
   child.cmd('topleft vertical new')
   sleep(small_time)
   validate_floats({
-    [1003] = {
+    [win_id] = {
       anchor = 'NW', external = false, focusable = false, relative = 'editor', zindex = 1,
       row = 0, col = 0, width = 6, height = 6, winblend = 80,
     },
   })
+  eq(child.api.nvim_win_get_option(win_id, 'winhighlight'), 'Normal:MiniAnimateNormalFloat')
 
   sleep(step_time)
-  validate_floats({ [1003] = { row = 0, col = 0, width = 3, height = 3, winblend = 90 } })
+  validate_floats({ [win_id] = { row = 0, col = 0, width = 3, height = 3, winblend = 90 } })
 
   sleep(step_time)
-  validate_floats({ [1003] = false })
+  validate_floats({ [win_id] = false })
 end
 
 T['Open']['works for a new tabpage'] = function()
+  local win_id = child.fn.has('nvim-0.10') == 1 and 1002 or 1003
   child.cmd('tabedit')
   sleep(small_time)
   validate_floats({
-    [1003] = { relative = 'editor', row = 1, col = 0, width = 12, height = 5, winblend = 80 },
+    [win_id] = { relative = 'editor', row = 1, col = 0, width = 12, height = 5, winblend = 80 },
   })
-  sleep(2 * 20)
+  sleep(2 * small_time)
   child.cmd('tabclose')
 
   -- Should also work second time (testing correct usage of tabpage number)
   child.cmd('tabedit')
   validate_floats({
-    [1005] = { relative = 'editor', row = 1, col = 0, width = 12, height = 5, winblend = 80 },
+    [win_id + 2] = { relative = 'editor', row = 1, col = 0, width = 12, height = 5, winblend = 80 },
   })
 end
 
 T['Open']['allows only one active animation'] = function()
+  local win_id = child.fn.has('nvim-0.10') == 1 and 1002 or 1003
   child.cmd('topleft vertical new')
   sleep(small_time)
   validate_floats({
-    [1003] = { relative = 'editor', row = 0, col = 0, width = 6, height = 6, winblend = 80 },
+    [win_id] = { relative = 'editor', row = 0, col = 0, width = 6, height = 6, winblend = 80 },
   })
 
   child.cmd('botright new')
   sleep(step_time + small_time)
   --stylua: ignore
   validate_floats({
-    [1003] = false,
-    [1005] = {
+    [win_id] = false,
+    [win_id + 2] = {
       -- It is already a second step with quarter coverage
       relative = 'editor', row = 3, col = 0, width = 6, height = 2, winblend = 90,
     },
@@ -2327,10 +2368,11 @@ T['Open']['allows only one active animation'] = function()
 end
 
 T['Open']['reopens floating window if it was closed manually'] = function()
+  local win_id = child.fn.has('nvim-0.10') == 1 and 1002 or 1003
   child.cmd('topleft vertical new')
   sleep(small_time)
   validate_floats({
-    [1003] = { relative = 'editor', row = 0, col = 0, width = 6, height = 6, winblend = 80 },
+    [win_id] = { relative = 'editor', row = 0, col = 0, width = 6, height = 6, winblend = 80 },
   })
   child.cmd('only')
   eq(child.api.nvim_list_wins(), { 1001 })
@@ -2338,7 +2380,7 @@ T['Open']['reopens floating window if it was closed manually'] = function()
   sleep(step_time)
   validate_floats({
     -- It is already a second step with quarter coverage
-    [1004] = { relative = 'editor', row = 0, col = 0, width = 3, height = 3, winblend = 90 },
+    [win_id + 1] = { relative = 'editor', row = 0, col = 0, width = 3, height = 3, winblend = 90 },
   })
 end
 
@@ -2353,11 +2395,11 @@ T['Open']['correctly calls `timing`'] = function()
   child.lua('_G.args_history = {}')
   child.lua([[MiniAnimate.config.open.timing = function(s, n)
     table.insert(_G.args_history, { s = s, n = n })
-    return 10
+    return _G.step_time
   end]])
 
   child.cmd('wincmd v')
-  sleep(10 * 2 + 5)
+  sleep(step_time * 2 + small_time)
   eq(child.lua_get('_G.args_history'), { { s = 1, n = 2 }, { s = 2, n = 2 } })
 end
 
@@ -2408,6 +2450,7 @@ T['Open']['respects `vim.{g,b}.minianimate_disable`'] = new_set({
   parametrize = { { 'g' }, { 'b' } },
 }, {
   test = function(var_type)
+    local win_id = child.fn.has('nvim-0.10') == 1 and 1003 or 1004
     child[var_type].minianimate_disable = true
     child.cmd('wincmd v')
     -- Should open without animation
@@ -2417,7 +2460,7 @@ T['Open']['respects `vim.{g,b}.minianimate_disable`'] = new_set({
     child.cmd('wincmd v')
     -- Should open with animation
     sleep(small_time)
-    validate_floats({ [1004] = { relative = 'editor' } })
+    validate_floats({ [win_id] = { relative = 'editor' } })
   end,
 })
 
@@ -2457,21 +2500,23 @@ T['Close'] = new_set({
 
 --stylua: ignore
 T['Close']['works'] = function()
+  local win_id = child.fn.has('nvim-0.10') == 1 and 1002 or 1003
   child.cmd('topleft vertical new')
   child.cmd('close')
   sleep(small_time)
   validate_floats({
-    [1003] = {
+    [win_id] = {
       anchor = 'NW', external = false, focusable = false, relative = 'editor', zindex = 1,
       row = 0, col = 0, width = 6, height = 6, winblend = 80,
     },
   })
+  eq(child.api.nvim_win_get_option(win_id, 'winhighlight'), 'Normal:MiniAnimateNormalFloat')
 
   sleep(step_time)
-  validate_floats({ [1003] = { row = 0, col = 0, width = 3, height = 3, winblend = 90 } })
+  validate_floats({ [win_id] = { row = 0, col = 0, width = 3, height = 3, winblend = 90 } })
 
   sleep(step_time)
-  validate_floats({ [1003] = false })
+  validate_floats({ [win_id] = false })
 end
 
 T['Close']['respects `enable` config setting'] = function()
@@ -2486,12 +2531,12 @@ T['Close']['correctly calls `timing`'] = function()
   child.lua('_G.args_history = {}')
   child.lua([[MiniAnimate.config.close.timing = function(s, n)
     table.insert(_G.args_history, { s = s, n = n })
-    return 10
+    return _G.step_time
   end]])
 
   child.cmd('wincmd v')
   child.cmd('close')
-  sleep(10 * 2 + 5)
+  sleep(step_time * 2 + small_time)
   eq(child.lua_get('_G.args_history'), { { s = 1, n = 2 }, { s = 2, n = 2 } })
 end
 

@@ -17,7 +17,7 @@
 --- - "Word under cursor" is meant as in Vim's |<cword>|: something user would
 ---   get as 'iw' text object.
 ---
---- # Setup~
+--- # Setup ~
 ---
 --- This module needs a setup with `require('mini.cursorword').setup({})`
 --- (replace `{}` with your `config` table). It will create global Lua table
@@ -30,7 +30,7 @@
 --- `vim.b.minicursorword_config` which should have same structure as
 --- `MiniCursorword.config`. See |mini.nvim-buffer-local-config| for more details.
 ---
---- # Highlight groups~
+--- # Highlight groups ~
 ---
 --- * `MiniCursorword` - highlight group of a non-current cursor word.
 ---   Default: plain underline.
@@ -38,13 +38,13 @@
 --- * `MiniCursorwordCurrent` - highlight group of a current word under cursor.
 ---   Default: links to `MiniCursorword` (so `:hi clear MiniCursorwordCurrent`
 ---   will lead to showing `MiniCursorword` highlight group).
----   Note: To not highlight it, use
+---   Note: To not highlight it, use the following Lua code: >lua
 ---
----   `:hi! MiniCursorwordCurrent guifg=NONE guibg=NONE gui=NONE cterm=NONE`
----
+---   vim.api.nvim_set_hl(0, 'MiniCursorwordCurrent', {})
+--- <
 --- To change any highlight group, modify it directly with |:highlight|.
 ---
---- # Disabling~
+--- # Disabling ~
 ---
 --- To disable core functionality, set `vim.g.minicursorword_disable` (globally) or
 --- `vim.b.minicursorword_disable` (for a buffer) to `true`. Considering high
@@ -57,11 +57,11 @@
 --- Module-specific disabling:
 --- - Don't show highlighting if cursor is on the word that is in a blocklist
 ---   of current filetype. In this example, blocklist for "lua" is "local" and
----   "require" words, for "javascript" - "import":
---- >
+---   "require" words, for "javascript" - "import": >lua
+---
 ---   _G.cursorword_blocklist = function()
 ---     local curword = vim.fn.expand('<cword>')
----     local filetype = vim.api.nvim_buf_get_option(0, 'filetype')
+---     local filetype = vim.bo.filetype
 ---
 ---     -- Add any disabling global or filetype-specific logic here
 ---     local blocklist = {}
@@ -76,6 +76,7 @@
 ---
 ---   -- Make sure to add this autocommand *before* calling module's `setup()`.
 ---   vim.cmd('au CursorMoved * lua _G.cursorword_blocklist()')
+--- <
 
 -- Module definition ==========================================================
 local MiniCursorword = {}
@@ -85,17 +86,12 @@ local H = {}
 ---
 ---@param config table|nil Module config table. See |MiniCursorword.config|.
 ---
----@usage `require('mini.cursorword').setup({})` (replace `{}` with your `config` table)
+---@usage >lua
+---   require('mini.cursorword').setup() -- use default config
+---   -- OR
+---   require('mini.cursorword').setup({}) -- replace {} with your config table
+--- <
 MiniCursorword.setup = function(config)
-  -- TODO: Remove after Neovim<=0.6 support is dropped
-  if vim.fn.has('nvim-0.7') == 0 then
-    vim.notify(
-      '(mini.cursorword) Neovim<0.7 is soft deprecated (module works but not supported).'
-        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
-        .. ' Please update your Neovim version.'
-    )
-  end
-
   -- Export module
   _G.MiniCursorword = MiniCursorword
 
@@ -105,35 +101,11 @@ MiniCursorword.setup = function(config)
   -- Apply config
   H.apply_config(config)
 
-  -- Module behavior
-  vim.api.nvim_exec(
-    [[augroup MiniCursorword
-        au!
-        au CursorMoved                   * lua MiniCursorword.auto_highlight()
-        au InsertEnter,TermEnter,QuitPre * lua MiniCursorword.auto_unhighlight()
+  -- Define behavior
+  H.create_autocommands()
 
-        au FileType TelescopePrompt let b:minicursorword_disable=v:true
-        au ColorScheme * hi default MiniCursorword cterm=underline gui=underline
-      augroup END]],
-    false
-  )
-
-  if vim.fn.exists('##ModeChanged') == 1 then
-    vim.api.nvim_exec(
-      -- Call `auto_highlight` on mode change to respect `minicursorword_disable`
-      [[augroup MiniCursorword
-          au ModeChanged *:[^i] lua MiniCursorword.auto_highlight()
-        augroup END]],
-      false
-    )
-  end
-
-  -- Create highlighting
-  vim.api.nvim_exec(
-    [[hi default MiniCursorword cterm=underline gui=underline
-      hi default link MiniCursorwordCurrent MiniCursorword]],
-    false
-  )
+  -- Create default highlighting
+  H.create_default_hl()
 end
 
 --- Module config
@@ -147,20 +119,78 @@ MiniCursorword.config = {
 --minidoc_afterlines_end
 
 -- Module functionality =======================================================
---- Auto highlight word under cursor
----
---- Designed to be used with |autocmd|. No need to use it directly,
---- everything is setup in |MiniCursorword.setup|.
-MiniCursorword.auto_highlight = function()
+
+-- Helper data ================================================================
+-- Module default config
+H.default_config = vim.deepcopy(MiniCursorword.config)
+
+-- Delay timer
+H.timer = vim.loop.new_timer()
+
+-- Information about last match highlighting (stored *per window*):
+-- - Key: windows' unique buffer identifiers.
+-- - Value: table with:
+--     - `id` field for match id (from `vim.fn.matchadd()`).
+--     - `word` field for matched word.
+H.window_matches = {}
+
+-- Helper functionality =======================================================
+-- Settings -------------------------------------------------------------------
+H.setup_config = function(config)
+  -- General idea: if some table elements are not present in user-supplied
+  -- `config`, take them from default config
+  vim.validate({ config = { config, 'table', true } })
+  config = vim.tbl_deep_extend('force', vim.deepcopy(H.default_config), config or {})
+
+  vim.validate({ delay = { config.delay, 'number' } })
+
+  return config
+end
+
+H.apply_config = function(config)
+  MiniCursorword.config = config
+
+  -- Make `setup()` to proper reset module
+  for _, m in ipairs(vim.fn.getmatches()) do
+    if vim.startswith(m.group, 'MiniCursorword') then vim.fn.matchdelete(m.id) end
+  end
+end
+
+H.create_autocommands = function()
+  local augroup = vim.api.nvim_create_augroup('MiniCursorword', {})
+
+  local au = function(event, pattern, callback, desc)
+    vim.api.nvim_create_autocmd(event, { group = augroup, pattern = pattern, callback = callback, desc = desc })
+  end
+
+  au('CursorMoved', '*', H.auto_highlight, 'Auto highlight cursorword')
+  au({ 'InsertEnter', 'TermEnter', 'QuitPre' }, '*', H.auto_unhighlight, 'Auto unhighlight cursorword')
+  au('ModeChanged', '*:[^i]', H.auto_highlight, 'Auto highlight cursorword')
+
+  au('ColorScheme', '*', H.create_default_hl, 'Ensure proper colors')
+  au('FileType', 'TelescopePrompt', function() vim.b.minicursorword_disable = true end, 'Disable locally')
+end
+
+--stylua: ignore
+H.create_default_hl = function()
+  vim.api.nvim_set_hl(0, 'MiniCursorword',        { default = true, underline = true })
+  vim.api.nvim_set_hl(0, 'MiniCursorwordCurrent', { default = true, link = 'MiniCursorword' })
+end
+
+H.is_disabled = function() return vim.g.minicursorword_disable == true or vim.b.minicursorword_disable == true end
+
+H.get_config = function(config)
+  return vim.tbl_deep_extend('force', MiniCursorword.config, vim.b.minicursorword_config or {}, config or {})
+end
+
+-- Autocommands ---------------------------------------------------------------
+H.auto_highlight = function()
   -- Stop any possible previous delayed highlighting
   H.timer:stop()
 
   -- Stop highlighting immediately if module is disabled when cursor is not on
   -- 'keyword'
-  if H.is_disabled() or not H.is_cursor_on_keyword() then
-    H.unhighlight()
-    return
-  end
+  if not H.should_highlight() then return H.unhighlight() end
 
   -- Get current information
   local win_id = vim.api.nvim_get_current_win()
@@ -190,53 +220,14 @@ MiniCursorword.auto_highlight = function()
   )
 end
 
---- Auto unhighlight word under cursor
----
---- Designed to be used with |autocmd|. No need to use it directly, everything
---- is setup in |MiniCursorword.setup|.
-MiniCursorword.auto_unhighlight = function()
+H.auto_unhighlight = function()
   -- Stop any possible previous delayed highlighting
   H.timer:stop()
   H.unhighlight()
 end
 
--- Helper data ================================================================
--- Module default config
-H.default_config = MiniCursorword.config
-
--- Delay timer
-H.timer = vim.loop.new_timer()
-
--- Information about last match highlighting (stored *per window*):
--- - Key: windows' unique buffer identifiers.
--- - Value: table with:
---     - `id` field for match id (from `vim.fn.matchadd()`).
---     - `word` field for matched word.
-H.window_matches = {}
-
--- Helper functionality =======================================================
--- Settings -------------------------------------------------------------------
-H.setup_config = function(config)
-  -- General idea: if some table elements are not present in user-supplied
-  -- `config`, take them from default config
-  vim.validate({ config = { config, 'table', true } })
-  config = vim.tbl_deep_extend('force', H.default_config, config or {})
-
-  vim.validate({ delay = { config.delay, 'number' } })
-
-  return config
-end
-
-H.apply_config = function(config) MiniCursorword.config = config end
-
-H.is_disabled = function() return vim.g.minicursorword_disable == true or vim.b.minicursorword_disable == true end
-
-H.get_config = function(config)
-  return vim.tbl_deep_extend('force', MiniCursorword.config, vim.b.minicursorword_config or {}, config or {})
-end
-
 -- Highlighting ---------------------------------------------------------------
----@param only_current boolean|nil Whether to forcefuly highlight only current word
+---@param only_current boolean|nil Whether to forcefully highlight only current word
 ---   under cursor.
 ---@private
 H.highlight = function(only_current)
@@ -246,6 +237,8 @@ H.highlight = function(only_current)
   -- `incsearch` which is not convenient.
   local win_id = vim.api.nvim_get_current_win()
   if not vim.api.nvim_win_is_valid(win_id) then return end
+
+  if not H.should_highlight() then return end
 
   H.window_matches[win_id] = H.window_matches[win_id] or {}
 
@@ -289,6 +282,8 @@ H.unhighlight = function(only_current)
     H.window_matches[win_id] = nil
   end
 end
+
+H.should_highlight = function() return not H.is_disabled() and H.is_cursor_on_keyword() end
 
 H.is_cursor_on_keyword = function()
   local col = vim.fn.col('.')

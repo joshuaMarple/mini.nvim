@@ -23,7 +23,7 @@ local example_lines = { 'aa ', 'aa  ', 'aa\t', 'aa\t\t', 'aa \t', 'aa\t ', '  aa
 local example_trimmed_lines = vim.tbl_map(function(x) return x:gsub('%s*$', '') end, example_lines)
 
 -- Output test set ============================================================
-T = new_set({
+local T = new_set({
   hooks = {
     pre_case = function()
       child.setup()
@@ -47,6 +47,8 @@ T['setup()']['creates side effects'] = function()
   eq(child.fn.exists('#MiniTrailspace'), 1)
 
   -- Highlight groups
+  child.cmd('hi clear')
+  load_module()
   expect.match(child.cmd_capture('hi MiniTrailspace'), 'links to Error')
 end
 

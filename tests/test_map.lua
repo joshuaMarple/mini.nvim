@@ -14,14 +14,6 @@ local set_lines = function(...) return child.set_lines(...) end
 local type_keys = function(...) return child.type_keys(...) end
 --stylua: ignore end
 
-local child_expect_screenshot = child.expect_screenshot
-child.expect_screenshot = function()
-  -- Test screenshots only on Neovim>=0.10 as they have slightly different
-  -- highlighting on earlier versions
-  if child.fn.has('nvim-0.10') == 0 then return true end
-  child_expect_screenshot()
-end
-
 -- Main function wrappers
 local map_open = function(opts) child.lua('MiniMap.open(...)', { opts }) end
 
@@ -32,8 +24,7 @@ local map_close = function() child.lua('MiniMap.close()') end
 -- Helpers related to 'mini.map'
 local get_resolution_test_file = function(id) return 'tests/dir-map/resolution_' .. id end
 
-local get_map_win_id =
-  function() return child.lua_get('MiniMap.current.win_data[vim.api.nvim_get_current_tabpage()]') end
+local get_map_win_id = function() return child.lua_get('MiniMap.current.win_data[vim.api.nvim_get_current_tabpage()]') end
 
 local get_map_win_side = function()
   local win_config = child.api.nvim_win_get_config(get_map_win_id())
@@ -58,6 +49,19 @@ local mock_diagnostic = function() child.cmd('source tests/dir-map/mock-diagnost
 
 local mock_gitsigns = function() child.cmd('set rtp+=tests/dir-map') end
 
+local mock_diff = function()
+  child.lua([[
+    local diff = require('mini.diff')
+    diff.setup({ source = diff.gen_source.none(), options = { linematch = 0 } })
+    local buf_text = { 'uuu', 'vvv', 'aaa', 'bbb', 'ddd', 'EEE', 'FFF', 'GGG', 'HHH', 'III', 'JJJ', 'KKK', 'LLL' }
+    local ref_text = { 'aaa', 'bbb', 'ccc', 'ddd', 'eee', 'fff' }
+
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, buf_text)
+    vim.api.nvim_win_set_cursor(0, { 1, 0 })
+    diff.set_ref_text(0, ref_text)
+  ]])
+end
+
 local source_test_integration = function() child.cmd('source tests/dir-map/src-test-integration.lua') end
 
 local mock_test_integration = function()
@@ -70,8 +74,9 @@ local mock_test_integration = function()
   ]])
 end
 
-local source_test_encode_symbols =
-  function() child.lua([[_G.test_encode_symbols = { '1', '2', '3', '4', resolution = { row = 1, col = 2 } }]]) end
+local source_test_encode_symbols = function()
+  child.lua([[_G.test_encode_symbols = { '1', '2', '3', '4', resolution = { row = 1, col = 2 } }]])
+end
 
 -- Various utilities
 local tbl_repeat = function(x, n)
@@ -94,7 +99,7 @@ end
 local get_n_shown_windows = function() return #child.api.nvim_tabpage_list_wins(0) end
 
 -- Output test set
-T = new_set({
+local T = new_set({
   hooks = {
     pre_case = function()
       child.setup()
@@ -147,6 +152,8 @@ T['setup()']['creates side effects'] = function()
   eq(child.fn.exists('#MiniMap'), 1)
 
   -- Highlight groups
+  child.cmd('hi clear')
+  load_module()
   local has_highlight = function(group, value) expect.match(child.cmd_capture('hi ' .. group), value) end
 
   has_highlight('MiniMapNormal', 'links to NormalFloat')
@@ -173,6 +180,7 @@ T['setup()']['creates `config` field'] = function()
   expect_config('window.show_integration_count', true)
   expect_config('window.width', 10)
   expect_config('window.winblend', 25)
+  expect_config('window.zindex', 10)
 end
 
 T['setup()']['respects `config` argument'] = function()
@@ -230,6 +238,7 @@ T['setup()']['validates `config` argument'] = function()
   expect_config_error({ window = { show_integration_count = 1 } }, 'window.show_integration_count', 'boolean')
   expect_config_error({ window = { width = 'a' } }, 'window.width', 'number')
   expect_config_error({ window = { winblend = 'a' } }, 'window.winblend', 'number')
+  expect_config_error({ window = { zindex = 'a' } }, 'window.zindex', 'number')
 end
 
 local encode_strings = function(strings, opts)
@@ -280,11 +289,13 @@ T['encode_strings()']['respects `opts.symbols`'] = function()
   )
 end
 
-T['encode_strings()']['works with empty strings'] =
-  function() eq(encode_strings({ 'aaaa', '', 'aaaa', '' }), { '🬰🬰', '  ' }) end
+T['encode_strings()']['works with empty strings'] = function()
+  eq(encode_strings({ 'aaaa', '', 'aaaa', '' }), { '🬰🬰', '  ' })
+end
 
-T['encode_strings()']['correctly computes default dimensions'] =
-  function() eq(encode_strings({ 'a', 'aa', 'aaa', 'aaaa', 'aaaaa', '' }), { '🬺🬏 ', '🬎🬎🬃' }) end
+T['encode_strings()']['correctly computes default dimensions'] = function()
+  eq(encode_strings({ 'a', 'aa', 'aaa', 'aaaa', 'aaaaa', '' }), { '🬺🬏 ', '🬎🬎🬃' })
+end
 
 T['encode_strings()']['does not trim whitespace'] = function()
   eq(encode_strings({ ' ' }), { ' ' })
@@ -366,12 +377,15 @@ T['open()']['correctly computes window config'] = function()
   map_open()
   local win_id = get_map_win_id()
 
+  local hide
+  if child.fn.has('nvim-0.10') == 1 then hide = false end
   eq(child.api.nvim_win_get_config(win_id), {
     anchor = 'NE',
     col = 20,
     external = false,
     focusable = false,
     height = 28,
+    hide = hide,
     relative = 'editor',
     row = 0,
     width = 10,
@@ -414,12 +428,15 @@ end
 
 T['open()']['respects `opts.window` argument'] = function()
   set_lines(example_lines)
-  local opts =
-    { window = { focusable = true, side = 'left', show_integration_count = false, width = 15, winblend = 50 } }
+  --stylua: ignore
+  local opts = {
+    window = { focusable = true, side = 'left', show_integration_count = false, width = 15, winblend = 50, zindex = 20 },
+  }
   map_open(opts)
 
   child.expect_screenshot()
   eq(child.api.nvim_win_get_option(get_map_win_id(), 'winblend'), 50)
+  eq(child.api.nvim_win_get_config(get_map_win_id()).zindex, 20)
 
   -- Map window should be focusable
   child.cmd('wincmd w')
@@ -488,13 +505,11 @@ T['open()']['respects important options when computing window height'] = functio
   -- Statusline
   validate({ showtabline = 0, laststatus = 1 }, 0, 28)
   validate({ showtabline = 0, laststatus = 2 }, 0, 28)
-
-  if child.fn.has('nvim-0.8') == 1 then validate({ showtabline = 0, laststatus = 3 }, 0, 28) end
+  validate({ showtabline = 0, laststatus = 3 }, 0, 28)
 
   -- Command line
   validate({ showtabline = 0, laststatus = 0, cmdheight = 4 }, 0, 26)
-
-  if child.fn.has('nvim-0.8') == 1 then validate({ showtabline = 0, laststatus = 0, cmdheight = 0 }, 0, 30) end
+  validate({ showtabline = 0, laststatus = 0, cmdheight = 0 }, 0, 30)
 end
 
 T['open()']['can be used with already opened window'] = function()
@@ -566,6 +581,8 @@ T['open()']['shows appropriate integration counts'] = function()
 end
 
 T['open()']['respects `MiniMapNormal` highlight group'] = function()
+  if child.fn.has('nvim-0.10') == 0 then MiniTest.skip('Screenshot is generated for Neovim>=0.10.') end
+
   set_lines(example_lines)
   child.cmd('hi MiniMapNormal ctermfg=black')
   map_open({ window = { winblend = 0 } })
@@ -650,12 +667,15 @@ T['refresh()']['respects `opts.window` argument'] = function()
   set_lines(example_lines)
   map_open()
 
-  local opts =
-    { window = { focusable = true, side = 'left', show_integration_count = false, width = 15, winblend = 50 } }
+  --stylua: ignore
+  local opts = {
+    window = { focusable = true, side = 'left', show_integration_count = false, width = 15, winblend = 50, zindex = 20 },
+  }
   map_refresh(opts)
 
   child.expect_screenshot()
   eq(child.api.nvim_win_get_option(get_map_win_id(), 'winblend'), 50)
+  eq(child.api.nvim_win_get_config(get_map_win_id()).zindex, 20)
 
   -- Updates current data accordingly
   eq(child.lua_get('MiniMap.current.opts.window'), opts.window)
@@ -1027,8 +1047,6 @@ T['gen_integration']['builtin_search()']['updates when appropriate'] = function(
 end
 
 T['gen_integration']['builtin_search()']['respects documented keymaps'] = function()
-  if child.fn.has('nvim-0.7.0') == 0 then return end
-
   map_open_with_integration('builtin_search')
 
   child.lua([[
@@ -1153,8 +1171,77 @@ T['gen_integration']['gitsigns()']['updates when appropriate'] = function()
   child.expect_screenshot()
 end
 
-T['gen_integration']['gitsigns()']['works if no "gitsigns" is detected'] =
-  function() eq(child.lua_get('MiniMap.gen_integration.gitsigns()()'), {}) end
+T['gen_integration']['gitsigns()']['works if no "gitsigns" is detected'] = function()
+  eq(child.lua_get('MiniMap.gen_integration.gitsigns()()'), {})
+end
+
+T['gen_integration']['diff()'] = new_set()
+
+T['gen_integration']['diff()']['works'] = function()
+  child.set_size(20, 30)
+  mock_diff()
+  map_open_with_integration('diff')
+  child.expect_screenshot()
+
+  --stylua: ignore
+  eq(
+    child.lua_get('MiniMap.current.opts.integrations[1]()'),
+    {
+      { line = 1 , hl_group = 'MiniDiffSignAdd'    },
+      { line = 2 , hl_group = 'MiniDiffSignAdd'    },
+      { line = 4 , hl_group = 'MiniDiffSignDelete' },
+      { line = 6 , hl_group = 'MiniDiffSignChange' },
+      { line = 7 , hl_group = 'MiniDiffSignChange' },
+      { line = 8 , hl_group = 'MiniDiffSignAdd'    },
+      { line = 9 , hl_group = 'MiniDiffSignAdd'    },
+      { line = 10, hl_group = 'MiniDiffSignAdd'     },
+      { line = 11, hl_group = 'MiniDiffSignAdd'     },
+      { line = 12, hl_group = 'MiniDiffSignAdd'     },
+      { line = 13, hl_group = 'MiniDiffSignAdd'    },
+    }
+  )
+end
+
+T['gen_integration']['diff()']['respects `hl_groups` argument'] = function()
+  mock_diff()
+  child.lua([[MiniMap.open({
+    integrations = { MiniMap.gen_integration.diff({ delete = 'Special' }) }
+  })]])
+  eq(child.lua_get('MiniMap.current.opts.integrations[1]()'), { { line = 4, hl_group = 'Special' } })
+end
+
+T['gen_integration']['diff()']['updates when appropriate'] = function()
+  map_open()
+
+  mock_diff()
+  child.lua([[
+    local refresh_orig = MiniMap.refresh
+    MiniMap.refresh = function(...)
+      _G.n = (_G.n or 0) + 1
+      refresh_orig(...)
+    end
+  ]])
+  child.lua('MiniMap.current.opts.integrations = { MiniMap.gen_integration.diff() }')
+  child.lua('_G.n = 0')
+  child.cmd('doautocmd User MiniDiffUpdated')
+  eq(child.lua_get('_G.n'), 1)
+end
+
+T['gen_integration']['diff()']['works if no diff data is found'] = function()
+  -- Not enabled buffer
+  mock_diff()
+  child.lua('MiniDiff.disable(0)')
+  eq(child.lua_get('MiniDiff.get_buf_data(0)'), vim.NIL)
+  eq(child.lua_get('MiniMap.gen_integration.diff()()'), {})
+
+  -- No 'mini.diff'
+  child.lua([[
+    MiniDiff = nil
+    package.loaded['mini.diff'] = nil
+    require = function() error() end
+  ]])
+  eq(child.lua_get('MiniMap.gen_integration.diff()()'), {})
+end
 
 -- Integration tests ==========================================================
 T['Window'] = new_set()
@@ -1215,8 +1302,6 @@ T['Window']['fully updates on vim resize'] = function()
 end
 
 T['Window']['fully updates on mode change to Normal'] = function()
-  if child.fn.exists('##ModeChanged') == 0 then return end
-
   child.set_size(15, 20)
   mock_test_integration()
   child.o.autoindent = false
@@ -1295,8 +1380,23 @@ T['Window']['can be made focusable by mouse with `window.focusable = true`'] = f
   set_lines(example_lines)
   map_open({ window = { focusable = true, side = 'left' } })
 
+  -- Ensure drawn floating window (github.com/neovim/neovim/issues/25643)
+  child.cmd('redraw')
   child.api.nvim_input_mouse('left', 'press', '', 0, 5, 5)
   eq(child.api.nvim_get_current_win(), get_map_win_id())
+end
+
+T['Window']['ensures target window is valid'] = function()
+  local init_win_id = child.api.nvim_get_current_win()
+  child.cmd('wincmd s')
+  local target_win_id = child.api.nvim_get_current_win()
+  map_open()
+  child.lua('MiniMap.toggle_focus()')
+
+  -- Closing target window should result into recomputing new target window
+  child.api.nvim_win_close(target_win_id, true)
+  child.lua('MiniMap.toggle_focus()')
+  eq(child.api.nvim_get_current_win(), init_win_id)
 end
 
 T['Scrollbar'] = new_set()

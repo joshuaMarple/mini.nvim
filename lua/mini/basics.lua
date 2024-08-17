@@ -70,17 +70,12 @@ local H = {}
 ---
 ---@param config table|nil Module config table. See |MiniBasics.config|.
 ---
----@usage `require('mini.basics').setup({})` (replace `{}` with your `config` table)
+---@usage >lua
+---   require('mini.basics').setup() -- use default config
+---   -- OR
+---   require('mini.basics').setup({}) -- replace {} with your config table
+--- <
 MiniBasics.setup = function(config)
-  -- TODO: Remove after Neovim<=0.6 support is dropped
-  if vim.fn.has('nvim-0.7') == 0 then
-    vim.notify(
-      '(mini.basics) Neovim<0.7 is soft deprecated (module works but not supported).'
-        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
-        .. ' Please update your Neovim version.'
-    )
-  end
-
   -- Export module
   _G.MiniBasics = MiniBasics
 
@@ -98,7 +93,8 @@ end
 ---@text                                                      *MiniBasics.config.options*
 --- # Options ~
 ---
---- Usage example: >
+--- Usage example: >lua
+---
 ---   require('mini.basics').setup({
 ---     options = {
 ---       basic = true,
@@ -106,7 +102,7 @@ end
 ---       win_borders = 'double',
 ---     }
 ---   })
----
+--- <
 --- ## options.basic ~
 ---
 --- The `config.options.basic` sets certain options to values which are quite
@@ -137,7 +133,7 @@ end
 ---     - |splitbelow|
 ---     - |splitkeep| (on Neovim>=0.9)
 ---     - |splitright|
----     - |termguicolors|
+---     - |termguicolors| (on Neovim<0.10; later versions have it smartly enabled)
 ---     - |wrap|
 --- - Editing
 ---     - |completeopt|
@@ -179,7 +175,8 @@ end
 ---                                                     *MiniBasics.config.mappings*
 --- # Mappings ~
 ---
---- Usage example: >
+--- Usage example: >lua
+---
 ---   require('mini.basics').setup({
 ---     mappings = {
 ---       basic = true,
@@ -188,13 +185,9 @@ end
 ---       move_with_alt = true,
 ---     }
 ---   })
----
+--- <
 --- If you don't want only some mappings to be made at all, use |vim.keymap.del()|
---- after calling |MiniMisc.setup()|. For example, to delete `<C-w>` mapping in
---- |Terminal-mode| (as it conflicts with `<C-w>` usage in terminal emulators)
---- use this code: >
----
----   vim.keymap.del('t', '<C-w>').
+--- after calling |MiniBasics.setup()|.
 ---
 --- ## mappings.basic ~
 ---
@@ -205,7 +198,7 @@ end
 --- behavior or override its default not very useful action.
 --- It will only add a mapping if it wasn't manually created before.
 ---
---- Here is a table with created mappings (see |[count]| for its meaning;): >
+--- Here is a table with created mappings : >
 ---
 ---  |Keys   |     Modes       |                  Description                  |
 ---  |-------|-----------------|-----------------------------------------------|
@@ -221,8 +214,11 @@ end
 ---  | #     | Visual          | Search backward for current visual selection  |
 ---  | <C-s> | Normal, Visual, | Save and go to Normal mode                    |
 ---  |       |     Insert      |                                               |
----  | <C-z> | Normal, Insert  | Correct latest misspelled word                |
 --- <
+--- Notes:
+--- - See |[count]| for its meaning.
+--- - On Neovim>=0.10 mappings for `#` and `*` are not created as their
+---   enhanced variants are made built-in. See |v_star-default| and |v_#-default|.
 ---
 --- ## mappings.option_toggle_prefix ~
 ---
@@ -250,7 +246,7 @@ end
 --- - `b` - |'background'|.
 --- - `c` - |'cursorline'|.
 --- - `C` - |'cursorcolumn'|.
---- - `d` - diagnostic (via |vim.diagnostic.enable()| and |vim.diagnostic.disable()|).
+--- - `d` - diagnostic (via |vim.diagnostic| functions).
 --- - `h` - |'hlsearch'| (or |v:hlsearch| to be precise).
 --- - `i` - |'ignorecase'|.
 --- - `l` - |'list'|.
@@ -277,10 +273,6 @@ end
 ---     - `<C-up>`    - increase window height.
 ---     - `<C-right>` - increase window width.
 ---
---- It also creates a `<C-w>` mapping in |Terminal-mode| for easier window
---- navigation inside builtin |terminal-emulator|. Tip: use `<C-w><Esc>` for
---- easier Terminal mode exit than |CTRL-\_CTRL-N|.
----
 --- ## mappings.move_with_alt
 ---
 --- The `config.mappings.move_with_alt` creates mappings for a more consistent
@@ -292,21 +284,22 @@ end
 ---
 --- Here is a list of created mappings (`<M-x>` means `Alt`/`Meta` plus `x`):
 --- - `<M-h>` - move cursor left.  Modes: Insert, Terminal, Command.
---- - `<M-h>` - move cursor down.  Modes: Insert, Terminal.
---- - `<M-h>` - move cursor up.    Modes: Insert, Terminal.
---- - `<M-h>` - move cursor right. Modes: Insert, Terminal, Command.
+--- - `<M-j>` - move cursor down.  Modes: Insert, Terminal.
+--- - `<M-k>` - move cursor up.    Modes: Insert, Terminal.
+--- - `<M-l>` - move cursor right. Modes: Insert, Terminal, Command.
 ---
 ---                                                 *MiniBasics.config.autocommands*
 --- # Autocommands ~
 ---
---- Usage example: >
+--- Usage example: >lua
+---
 ---   require('mini.basics').setup({
 ---     autocommands = {
 ---       basic = true,
 ---       relnum_in_visual_mode = true,
 ---     }
 ---   })
----
+--- <
 --- ## autocommands.basic ~
 ---
 --- The `config.autocommands.basic` creates some common autocommands:
@@ -323,7 +316,7 @@ end
 MiniBasics.config = {
   -- Options. Set to `false` to disable.
   options = {
-    -- Basic options ('termguicolors', 'number', 'ignorecase', and many more)
+    -- Basic options ('number', 'ignorecase', and many more)
     basic = true,
 
     -- Extra UI features ('winblend', 'cmdheight=0', ...)
@@ -365,22 +358,22 @@ MiniBasics.config = {
 
 --- Toggle diagnostic for current buffer
 ---
---- This uses |vim.diagnostic.enable()| and |vim.diagnostic.disable()| on
---- per buffer basis.
+--- This uses |vim.diagnostic| functions per buffer.
 ---
 ---@return string String indicator for new state. Similar to what |:set| `{option}?` shows.
 MiniBasics.toggle_diagnostic = function()
   local buf_id = vim.api.nvim_get_current_buf()
-  local buf_state = H.buffer_diagnostic_state[buf_id]
-  if buf_state == nil then buf_state = true end
+  local is_enabled = H.diagnostic_is_enabled(buf_id)
 
-  if buf_state then
-    vim.diagnostic.disable(buf_id)
+  local f
+  if vim.fn.has('nvim-0.10') == 1 then
+    f = function(bufnr) vim.diagnostic.enable(not is_enabled, { bufnr = bufnr }) end
   else
-    vim.diagnostic.enable(buf_id)
+    f = is_enabled and vim.diagnostic.disable or vim.diagnostic.enable
   end
+  f(buf_id)
 
-  local new_buf_state = not buf_state
+  local new_buf_state = not is_enabled
   H.buffer_diagnostic_state[buf_id] = new_buf_state
 
   return new_buf_state and '  diagnostic' or 'nodiagnostic'
@@ -388,7 +381,7 @@ end
 
 -- Helper data ================================================================
 -- Module default config
-H.default_config = MiniBasics.config
+H.default_config = vim.deepcopy(MiniBasics.config)
 
 -- Diagnostic state per buffer
 H.buffer_diagnostic_state = {}
@@ -399,7 +392,7 @@ H.setup_config = function(config)
   -- General idea: if some table elements are not present in user-supplied
   -- `config`, take them from default config
   vim.validate({ config = { config, 'table', true } })
-  config = vim.tbl_deep_extend('force', H.default_config, config or {})
+  config = vim.tbl_deep_extend('force', vim.deepcopy(H.default_config), config or {})
 
   vim.validate({
     options = { config.options, 'table' },
@@ -465,7 +458,6 @@ H.apply_options = function(config)
     o.number        = true    -- Show line numbers
     o.splitbelow    = true    -- Horizontal splits will be below
     o.splitright    = true    -- Vertical splits will be to the right
-    o.termguicolors = true    -- Enable gui colors
 
     o.ruler         = false   -- Don't show cursor position in command line
     o.showmode      = false   -- Don't show mode in command line
@@ -492,6 +484,10 @@ H.apply_options = function(config)
     else
       opt.shortmess:append('Wc')  -- Reduce command line messages
     end
+
+    if vim.fn.has('nvim-0.10') == 0 then
+      o.termguicolors = true -- Enable gui colors
+    end
   end
 
   -- Some opinioneted extra UI options
@@ -500,18 +496,20 @@ H.apply_options = function(config)
     o.pumheight = 10 -- Make popup menu smaller
     o.winblend  = 10 -- Make floating windows slightly transparent
 
-    o.listchars = 'extends:…,precedes:…,nbsp:␣' -- Define which helper symbols to show
-    o.list      = true                          -- Show some helper symbols
+    -- NOTE: Having `tab` present is needed because `^I` will be shown if
+    -- omitted (documented in `:h listchars`).
+    -- Having it equal to a default value should be less intrusive.
+    o.listchars = 'tab:> ,extends:…,precedes:…,nbsp:␣' -- Define which helper symbols to show
+    o.list      = true                                 -- Show some helper symbols
 
-    -- Enable syntax highlighing if it wasn't already (as it is time consuming)
+    -- Enable syntax highlighting if it wasn't already (as it is time consuming)
     if vim.fn.exists("syntax_on") ~= 1 then vim.cmd([[syntax enable]]) end
   end
 
   -- Use some common window borders presets
-  local fillchars = H.win_borders_fillchars[config.options.win_borders]
-  if fillchars ~= nil then
-    local chars = fillchars.vert .. (vim.fn.has('nvim-0.7') == 1 and fillchars.rest or '')
-    vim.opt.fillchars:append(chars)
+  local border_chars = H.win_borders_fillchars[config.options.win_borders]
+  if border_chars ~= nil then
+    vim.opt.fillchars:append(border_chars)
   end
 end
 
@@ -535,11 +533,11 @@ H.vim_opt = setmetatable({}, {
 
 --stylua: ignore
 H.win_borders_fillchars = {
-  bold    = { vert = 'vert:┃', rest = ',horiz:━,horizdown:┳,horizup:┻,verthoriz:╋,vertleft:┫,vertright:┣' },
-  dot     = { vert = 'vert:·', rest = ',horiz:·,horizdown:·,horizup:·,verthoriz:·,vertleft:·,vertright:·' },
-  double  = { vert = 'vert:║', rest = ',horiz:═,horizdown:╦,horizup:╩,verthoriz:╬,vertleft:╣,vertright:╠' },
-  single  = { vert = 'vert:│', rest = ',horiz:─,horizdown:┬,horizup:┴,verthoriz:┼,vertleft:┤,vertright:├' },
-  solid   = { vert = 'vert: ', rest = ',horiz: ,horizdown: ,horizup: ,verthoriz: ,vertleft: ,vertright: ' },
+  bold   = 'vert:┃,horiz:━,horizdown:┳,horizup:┻,verthoriz:╋,vertleft:┫,vertright:┣',
+  dot    = 'vert:·,horiz:·,horizdown:·,horizup:·,verthoriz:·,vertleft:·,vertright:·',
+  double = 'vert:║,horiz:═,horizdown:╦,horizup:╩,verthoriz:╬,vertleft:╣,vertright:╠',
+  single = 'vert:│,horiz:─,horizdown:┬,horizup:┴,verthoriz:┼,vertleft:┤,vertright:├',
+  solid  = 'vert: ,horiz: ,horizdown: ,horizup: ,verthoriz: ,vertleft: ,vertright: ',
 }
 
 -- Mappings -------------------------------------------------------------------
@@ -578,8 +576,8 @@ H.apply_mappings = function(config)
     -- map('n', 'gO', "<Cmd>call append(line('.') - 1, repeat([''], v:count1))<CR>")
     -- map('n', 'go', "<Cmd>call append(line('.'),     repeat([''], v:count1))<CR>")
     -- ```
-    map('n', 'gO', 'v:lua.MiniBasics.put_empty_line(v:true)',  { desc = 'Put empty line above', expr = true })
-    map('n', 'go', 'v:lua.MiniBasics.put_empty_line(v:false)', { desc = 'Put empty line below', expr = true })
+    map('n', 'gO', 'v:lua.MiniBasics.put_empty_line(v:true)',  { expr = true, desc = 'Put empty line above' })
+    map('n', 'go', 'v:lua.MiniBasics.put_empty_line(v:false)', { expr = true, desc = 'Put empty line below' })
 
     -- Copy/paste with system clipboard
     map({ 'n', 'x' }, 'gy', '"+y', { desc = 'Copy to system clipboard' })
@@ -588,28 +586,24 @@ H.apply_mappings = function(config)
     map(  'x',        'gp', '"+P', { desc = 'Paste from system clipboard' })
 
     -- Reselect latest changed, put, or yanked text
-    map('n', 'gV', '"`[" . strpart(getregtype(), 0, 1) . "`]"', { expr = true, desc = 'Visually select changed text' })
+    map('n', 'gV', '"`[" . strpart(getregtype(), 0, 1) . "`]"', { expr = true, replace_keycodes = false, desc = 'Visually select changed text' })
 
     -- Search inside visually highlighted text. Use `silent = false` for it to
     -- make effect immediately.
     map('x', 'g/', '<esc>/\\%V', { silent = false, desc = 'Search inside visual selection' })
 
-    -- Search visually selected text (slightly better than builtins in Neovim>=0.8)
-    map('x', '*', [[y/\V<C-R>=escape(@", '/\')<CR><CR>]])
-    map('x', '#', [[y?\V<C-R>=escape(@", '?\')<CR><CR>]])
+    -- Search visually selected text (slightly better than builtins in
+    -- Neovim>=0.8 but slightly worse than builtins in Neovim>=0.10)
+    -- TODO: Remove this after compatibility with Neovim=0.9 is dropped
+    if vim.fn.has('nvim-0.10') == 0 then
+      map('x', '*', [[y/\V<C-R>=escape(@", '/\')<CR><CR>]], { desc = 'Search forward' })
+      map('x', '#', [[y?\V<C-R>=escape(@", '?\')<CR><CR>]], { desc = 'Search backward' })
+    end
 
     -- Alternative way to save and exit in Normal mode.
     -- NOTE: Adding `redraw` helps with `cmdheight=0` if buffer is not modified
     map(  'n',        '<C-S>', '<Cmd>silent! update | redraw<CR>',      { desc = 'Save' })
     map({ 'i', 'x' }, '<C-S>', '<Esc><Cmd>silent! update | redraw<CR>', { desc = 'Save and go to Normal mode' })
-
-    -- Correct latest misspelled word by taking first suggestion.
-    -- Use `<C-g>u` in Insert mode to mark this as separate undoable action.
-    -- Source: https://stackoverflow.com/a/16481737
-    -- NOTE: this remaps `<C-z>` in Normal mode (completely stops Neovim), but
-    -- it seems to be too harmful anyway.
-    map('n', '<C-Z>', '[s1z=',                     { desc = 'Correct latest misspelled word' })
-    map('i', '<C-Z>', '<C-g>u<Esc>[s1z=`]a<C-g>u', { desc = 'Correct latest misspelled word' })
   end
 
   local toggle_prefix = config.mappings.option_toggle_prefix
@@ -651,13 +645,11 @@ H.apply_mappings = function(config)
     map('n', '<C-K>', '<C-w>k', { desc = 'Focus on above window' })
     map('n', '<C-L>', '<C-w>l', { desc = 'Focus on right window' })
 
-    map('t', '<C-W>', [[<C-\><C-N><C-w>]], { desc = 'Focus other window' })
-
     -- Window resize (respecting `v:count`)
-    map('n', '<C-Left>',  '"<Cmd>vertical resize -" . v:count1 . "<CR>"', { expr = true, desc = 'Decrease window width' })
-    map('n', '<C-Down>',  '"<Cmd>resize -"          . v:count1 . "<CR>"', { expr = true, desc = 'Decrease window height' })
-    map('n', '<C-Up>',    '"<Cmd>resize +"          . v:count1 . "<CR>"', { expr = true, desc = 'Increase window height' })
-    map('n', '<C-Right>', '"<Cmd>vertical resize +" . v:count1 . "<CR>"', { expr = true, desc = 'Increase window width' })
+    map('n', '<C-Left>',  '"<Cmd>vertical resize -" . v:count1 . "<CR>"', { expr = true, replace_keycodes = false, desc = 'Decrease window width' })
+    map('n', '<C-Down>',  '"<Cmd>resize -"          . v:count1 . "<CR>"', { expr = true, replace_keycodes = false, desc = 'Decrease window height' })
+    map('n', '<C-Up>',    '"<Cmd>resize +"          . v:count1 . "<CR>"', { expr = true, replace_keycodes = false, desc = 'Increase window height' })
+    map('n', '<C-Right>', '"<Cmd>vertical resize +" . v:count1 . "<CR>"', { expr = true, replace_keycodes = false, desc = 'Increase window width' })
   end
 
   if config.mappings.move_with_alt then
@@ -689,16 +681,22 @@ H.keymap_set = function(modes, lhs, rhs, opts)
   for _, mode in ipairs(modes) do
     -- Don't map if mapping is already set **globally**
     local map_info = H.get_map_info(mode, lhs)
-    local is_default = map_info == nil
-      -- Some mappings are set by default in Neovim
-      or (mode == 'n' and lhs == '<C-L>' and map_info.rhs:find('nohl') ~= nil)
-      or (mode == 'x' and lhs == '*' and map_info.rhs == [[y/\V<C-R>"<CR>]])
-      or (mode == 'x' and lhs == '#' and map_info.rhs == [[y?\V<C-R>"<CR>]])
-    if not is_default then return end
+    if not H.is_default_keymap(mode, lhs, map_info) then return end
 
     -- Map
     H.map(mode, lhs, rhs, opts)
   end
+end
+
+H.is_default_keymap = function(mode, lhs, map_info)
+  if map_info == nil then return true end
+  local rhs, desc = map_info.rhs or '', map_info.desc or ''
+
+  -- Some mappings are set by default in Neovim
+  if mode == 'n' and lhs == '<C-L>' then return rhs:find('nohl') ~= nil end
+  if mode == 'i' and lhs == '<C-S>' then return desc:find('signature') ~= nil end
+  if mode == 'x' and lhs == '*' then return rhs == [[y/\V<C-R>"<CR>]] end
+  if mode == 'x' and lhs == '#' then return rhs == [[y?\V<C-R>"<CR>]] end
 end
 
 H.get_map_info = function(mode, lhs)
@@ -710,40 +708,59 @@ end
 
 -- Autocommands ---------------------------------------------------------------
 H.apply_autocommands = function(config)
-  -- TODO: use `nvim_create_autocmd()` after Neovim<=0.6 support is dropped
+  local augroup = vim.api.nvim_create_augroup('MiniBasicsAutocommands', {})
 
-  vim.cmd([[augroup MiniBasicsAutocommands]])
-  vim.cmd([[autocmd!]])
+  local au = function(event, pattern, callback, desc)
+    vim.api.nvim_create_autocmd(event, { group = augroup, pattern = pattern, callback = callback, desc = desc })
+  end
 
   if config.autocommands.basic then
-    -- Highlight yanked text
-    vim.cmd([[autocmd TextYankPost * silent! lua vim.highlight.on_yank()]])
+    au('TextYankPost', '*', function() vim.highlight.on_yank() end, 'Highlight yanked text')
 
-    -- Start builtin terminal in Insert mode
-    vim.cmd([[autocmd TermOpen * startinsert]])
+    local start_terminal_insert = vim.schedule_wrap(function(data)
+      -- Try to start terminal mode only if target terminal is current
+      if not (vim.api.nvim_get_current_buf() == data.buf and vim.bo.buftype == 'terminal') then return end
+      vim.cmd('startinsert')
+    end)
+    au('TermOpen', 'term://*', start_terminal_insert, 'Start builtin terminal in Insert mode')
   end
 
-  if config.autocommands.relnum_in_visual_mode and vim.fn.exists('##ModeChanged') == 1 then
-    -- Show relative line numbers only when they matter (linewise and blockwise
-    -- selection) and 'number' is set (avoids horizontal flickering)
-    vim.cmd([[autocmd ModeChanged *:[V\x16]* let &l:relativenumber = &l:number == 1]])
-    -- - Using `mode () =~#...` handles switching between linewise and blockwise mode.
-    vim.cmd([[autocmd ModeChanged [V\x16]*:* let &l:relativenumber = mode() =~# '^[V\x16]']])
+  if config.autocommands.relnum_in_visual_mode then
+    au(
+      'ModeChanged',
+      -- Show relative numbers only when they matter (linewise and blockwise
+      -- selection) and 'number' is set (avoids horizontal flickering)
+      '*:[V\x16]*',
+      function() vim.wo.relativenumber = vim.wo.number end,
+      'Show relative line numbers'
+    )
+    au(
+      'ModeChanged',
+      '[V\x16]*:*',
+      -- Hide relative numbers when neither linewise/blockwise mode is on
+      function() vim.wo.relativenumber = string.find(vim.fn.mode(), '^[V\22]') ~= nil end,
+      'Hide relative line numbers'
+    )
   end
-
-  vim.cmd([[augroup END]])
 end
 
 -- Utilities ------------------------------------------------------------------
-H.map = function(mode, key, rhs, opts)
-  if key == '' then return end
+H.map = function(mode, lhs, rhs, opts)
+  if lhs == '' then return end
+  opts = vim.tbl_deep_extend('force', { silent = true }, opts or {})
+  vim.keymap.set(mode, lhs, rhs, opts)
+end
 
-  opts = vim.tbl_deep_extend('force', { noremap = true, silent = true }, opts or {})
-
-  -- Use mapping description only in Neovim>=0.7
-  if vim.fn.has('nvim-0.7') == 0 then opts.desc = nil end
-
-  vim.api.nvim_set_keymap(mode, key, rhs, opts)
+if vim.fn.has('nvim-0.10') == 1 then
+  H.diagnostic_is_enabled = function(buf_id) return vim.diagnostic.is_enabled({ bufnr = buf_id }) end
+elseif vim.fn.has('nvim-0.9') == 1 then
+  H.diagnostic_is_enabled = function(buf_id) return not vim.diagnostic.is_disabled(buf_id) end
+else
+  H.diagnostic_is_enabled = function(buf_id)
+    local res = H.buffer_diagnostic_state[buf_id]
+    if res == nil then res = true end
+    return res
+  end
 end
 
 return MiniBasics

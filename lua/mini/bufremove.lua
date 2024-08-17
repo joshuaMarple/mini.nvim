@@ -9,7 +9,7 @@
 --- - Unshow, delete, and wipeout buffer while saving window layout
 ---   (opposite to builtin Neovim's commands).
 ---
---- # Setup~
+--- # Setup ~
 ---
 --- This module doesn't need setup, but it can be done to improve usability.
 --- Setup with `require('mini.bufremove').setup({})` (replace `{}` with your
@@ -23,16 +23,15 @@
 ---
 --- To stop module from showing non-error feedback, set `config.silent = true`.
 ---
---- # Notes~
+--- # Notes ~
 ---
 --- 1. Which buffer to show in window(s) after its current buffer is removed is
 ---    decided by the algorithm:
 ---    - If alternate buffer (see |CTRL-^|) is listed (see |buflisted()|), use it.
 ---    - If previous listed buffer (see |bprevious|) is different, use it.
----    - Otherwise create a scratch one with `nvim_create_buf(true, true)` and use
----      it.
+---    - Otherwise create a new one with `nvim_create_buf(true, false)` and use it.
 ---
---- # Disabling~
+--- # Disabling ~
 ---
 --- To disable core functionality, set `vim.g.minibufremove_disable` (globally) or
 --- `vim.b.minibufremove_disable` (for a buffer) to `true`. Considering high
@@ -44,7 +43,8 @@
 ---@alias __bufremove_buf_id number|nil Buffer identifier (see |bufnr()|) to use.
 ---   Default: 0 for current.
 ---@alias __bufremove_force boolean|nil Whether to ignore unsaved changes (using `!` version of
----   command). Default: `false`.
+---   command). If `false`, calling with unsaved changes will prompt confirm dialog.
+---   Default: `false`.
 
 -- Module definition ==========================================================
 local MiniBufremove = {}
@@ -54,17 +54,12 @@ local H = {}
 ---
 ---@param config table|nil Module config table. See |MiniBufremove.config|.
 ---
----@usage `require('mini.bufremove').setup({})` (replace `{}` with your `config` table)
+---@usage >lua
+---   require('mini.bufremove').setup() -- use default config
+---   -- OR
+---   require('mini.bufremove').setup({}) -- replace {} with your config table
+--- <
 MiniBufremove.setup = function(config)
-  -- TODO: Remove after Neovim<=0.6 support is dropped
-  if vim.fn.has('nvim-0.7') == 0 then
-    vim.notify(
-      '(mini.bufremove) Neovim<0.7 is soft deprecated (module works but not supported).'
-        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
-        .. ' Please update your Neovim version.'
-    )
-  end
-
   -- Export module
   _G.MiniBufremove = MiniBufremove
 
@@ -163,11 +158,11 @@ MiniBufremove.unshow_in_window = function(win_id)
     end
 
     -- Try using previous buffer
-    vim.cmd('bprevious')
-    if cur_buf ~= vim.api.nvim_win_get_buf(win_id) then return end
+    local has_previous = pcall(vim.cmd, 'bprevious')
+    if has_previous and cur_buf ~= vim.api.nvim_win_get_buf(win_id) then return end
 
-    -- Create new listed scratch buffer
-    local new_buf = vim.api.nvim_create_buf(true, true)
+    -- Create new listed buffer
+    local new_buf = vim.api.nvim_create_buf(true, false)
     vim.api.nvim_win_set_buf(win_id, new_buf)
   end)
 
@@ -176,7 +171,7 @@ end
 
 -- Helper data ================================================================
 -- Module default config
-H.default_config = MiniBufremove.config
+H.default_config = vim.deepcopy(MiniBufremove.config)
 
 -- Helper functionality =======================================================
 -- Settings -------------------------------------------------------------------
@@ -184,7 +179,7 @@ H.setup_config = function(config)
   -- General idea: if some table elements are not present in user-supplied
   -- `config`, take them from default config
   vim.validate({ config = { config, 'table', true } })
-  config = vim.tbl_deep_extend('force', H.default_config, config or {})
+  config = vim.tbl_deep_extend('force', vim.deepcopy(H.default_config), config or {})
 
   vim.validate({
     set_vim_settings = { config.set_vim_settings, 'boolean' },
@@ -225,7 +220,7 @@ H.unshow_and_cmd = function(buf_id, force, cmd)
   MiniBufremove.unshow(buf_id)
 
   -- Execute command
-  local command = string.format('%s%s %d', cmd, force and '!' or '', buf_id)
+  local command = string.format('%s! %d', cmd, buf_id)
   -- Use `pcall` here to take care of case where `unshow()` was enough. This
   -- can happen with 'bufhidden' option values:
   -- - If `delete` then `unshow()` already `bdelete`d buffer. Without `pcall`
@@ -274,20 +269,9 @@ end
 
 -- Check if buffer can be removed with `MiniBufremove.fun_name` function
 H.can_remove = function(buf_id, force, fun_name)
-  if force then return true end
-
-  if vim.api.nvim_buf_get_option(buf_id, 'modified') then
-    H.message(
-      string.format(
-        'Buffer %d has unsaved changes. Use `MiniBufremove.%s(%d, true)` to force.',
-        buf_id,
-        fun_name,
-        buf_id
-      )
-    )
-    return false
-  end
-  return true
+  if force or not vim.bo[buf_id].modified then return true end
+  local msg = string.format('Buffer %d has unsaved changes. Do you want to force %s?', buf_id, fun_name)
+  return vim.fn.confirm(msg, '&No\n&Yes', 1, 'Question') == 2
 end
 
 -- Compute 'true' buffer id (strictly positive integer). Treat `nil` and 0 as

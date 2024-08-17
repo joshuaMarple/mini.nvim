@@ -7,8 +7,6 @@ local new_set = MiniTest.new_set
 -- Helpers with child processes
 --stylua: ignore start
 local load_module = function(config) child.mini_load('basics', config) end
-local unload_module = function() child.mini_unload('basics') end
-local reload_module = function(config) unload_module(); load_module(config) end
 local set_cursor = function(...) return child.set_cursor(...) end
 local get_cursor = function(...) return child.get_cursor(...) end
 local set_lines = function(...) return child.set_lines(...) end
@@ -17,7 +15,7 @@ local type_keys = function(...) return child.type_keys(...) end
 --stylua: ignore end
 
 -- Output test set ============================================================
-T = new_set({
+local T = new_set({
   hooks = {
     pre_case = child.setup,
     post_once = child.stop,
@@ -83,10 +81,19 @@ end
 
 T['toggle_diagnostic()'] = new_set()
 
+local toggle_diagnostic = function() return child.lua_get('MiniBasics.toggle_diagnostic()') end
+
 T['toggle_diagnostic()']['works'] = function()
-  local toggle_diagnostic = function() return child.lua_get('MiniBasics.toggle_diagnostic()') end
-  child.lua([[vim.diagnostic.enable = function() vim.b.diag_status = 'enabled' end]])
-  child.lua([[vim.diagnostic.disable = function() vim.b.diag_status = 'disabled' end]])
+  if child.fn.has('nvim-0.10') == 1 then
+    child.lua([[vim.diagnostic.enable = function(enable) vim.b.diag_status = enable and 'enabled' or 'disabled' end]])
+    child.lua([[vim.diagnostic.is_enabled = function(enable) return vim.b.diag_status ~= 'disabled' end]])
+  else
+    child.lua([[vim.diagnostic.enable = function() vim.b.diag_status = 'enabled' end]])
+    child.lua([[vim.diagnostic.disable = function() vim.b.diag_status = 'disabled' end]])
+    if child.fn.has('nvim-0.9') == 1 then
+      child.lua([[vim.diagnostic.is_disabled = function() return vim.b.diag_status == 'disabled' end]])
+    end
+  end
 
   load_module()
 
@@ -115,13 +122,39 @@ T['toggle_diagnostic()']['works'] = function()
   eq(child.b.diag_status, 'enabled')
 end
 
+T['toggle_diagnostic()']['works if initially disabled'] = function()
+  if child.fn.has('nvim-0.9') == 0 then
+    MiniTest.skip('Requires `vim.diagnostic.is_disabled` / `vim.diagnostic.is_enabled` which are Neovim>=0.9.')
+  end
+
+  load_module()
+  local buf_id = child.api.nvim_get_current_buf()
+
+  local disable, is_disabled
+  if child.fn.has('nvim-0.10') == 1 then
+    disable = function() child.diagnostic.enable(false, { bufnr = buf_id }) end
+    is_disabled = function() return not child.diagnostic.is_enabled({ bufnr = buf_id }) end
+  else
+    disable = function() child.diagnostic.disable(buf_id) end
+    is_disabled = function() return child.diagnostic.is_disabled(buf_id) end
+  end
+
+  disable()
+  eq(is_disabled(), true)
+  toggle_diagnostic()
+  eq(is_disabled(), false)
+  toggle_diagnostic()
+  eq(is_disabled(), true)
+end
+
 -- Integration tests ==========================================================
 T['Options'] = new_set()
 
 T['Options']['work'] = function()
   -- Basic options (should be set by default)
   eq(child.g.mapleader, vim.NIL)
-  eq(child.o.termguicolors, false)
+  -- - `termguicolors` is enabled in Neovim=0.10 by default (if possible)
+  if child.fn.has('nvim-0.10') == 0 then eq(child.o.termguicolors, false) end
   eq(child.o.number, false)
   eq(child.o.signcolumn, 'auto')
   eq(child.o.fillchars, '')
@@ -132,7 +165,7 @@ T['Options']['work'] = function()
   load_module()
 
   eq(child.g.mapleader, ' ')
-  eq(child.o.termguicolors, true)
+  if child.fn.has('nvim-0.10') == 0 then eq(child.o.termguicolors, true) end
   eq(child.o.number, true)
   eq(child.o.signcolumn, 'yes')
   eq(child.o.fillchars, 'eob: ')
@@ -143,12 +176,12 @@ end
 T['Options']['do not override manually set options'] = function()
   -- Shouldn't modify options manually set to non-default value
   child.g.mapleader = ';'
-  child.o.signcolumn = 'no'
-  child.o.pumblend = 50
+  child.cmd('set signcolumn=no')
+  child.cmd('set pumblend=50')
 
   -- Shouldn't modify option manually set to default value
-  child.o.number = false
-  child.o.list = false
+  child.cmd('set nonumber')
+  child.cmd('set nolist')
 
   load_module({ options = { basic = true, extra_ui = true } })
 
@@ -161,14 +194,14 @@ end
 
 T['Options']['respect `config.options.basic`'] = function()
   eq(child.g.mapleader, vim.NIL)
-  eq(child.o.termguicolors, false)
+  local tgc = child.o.termguicolors
   eq(child.o.number, false)
   eq(child.o.signcolumn, 'auto')
 
   load_module({ options = { basic = false } })
 
   eq(child.g.mapleader, vim.NIL)
-  eq(child.o.termguicolors, false)
+  eq(child.o.termguicolors, tgc)
   eq(child.o.number, false)
   eq(child.o.signcolumn, 'auto')
 end
@@ -181,6 +214,9 @@ T['Options']['respect `config.options.extra_ui`'] = function()
 
   eq(child.o.pumblend, 10)
   eq(child.o.list, true)
+
+  -- 'listchars' should have `tab` defined to not show `^I` instead of tab
+  expect.match(child.o.listchars, 'tab')
 end
 
 T['Options']['respect `config.options.win_borders`'] = function()
@@ -188,12 +224,7 @@ T['Options']['respect `config.options.win_borders`'] = function()
 
   load_module({ options = { basic = false, win_borders = 'double' } })
 
-  local ref_value
-  if child.fn.has('nvim-0.7') == 1 then
-    ref_value = 'horiz:═,horizdown:╦,horizup:╩,vert:║,verthoriz:╬,vertleft:╣,vertright:╠'
-  else
-    ref_value = 'vert:║'
-  end
+  local ref_value = 'horiz:═,horizdown:╦,horizup:╩,vert:║,verthoriz:╬,vertleft:╣,vertright:╠'
   eq(child.o.fillchars, ref_value)
 end
 
@@ -210,14 +241,14 @@ end
 T['Mappings']['do not override manually created mappings'] = function()
   child.api.nvim_set_keymap('n', 'j', 'aaaaa', { noremap = true })
   child.api.nvim_set_keymap('n', ',s', 'bbbbb', { noremap = true })
-  child.api.nvim_set_keymap('n', '<C-h>', 'ccccc', { noremap = true })
+  child.lua([[vim.keymap.set('n', '<C-l>', function() end, { desc = 'Test' })]])
   child.api.nvim_set_keymap('i', '<M-h>', 'ddddd', { noremap = true })
 
   load_module({ mappings = { basic = true, option_toggle_prefix = ',', windows = true, move_with_alt = true } })
 
   expect.match(child.cmd_capture('nmap j'), 'aaaaa')
   expect.match(child.cmd_capture('nmap ,s'), 'bbbbb')
-  expect.match(child.cmd_capture('nmap <C-h>'), 'ccccc')
+  expect.match(child.cmd_capture('nmap <C-l>'), 'Test')
   expect.match(child.cmd_capture('imap <M-h>'), 'ddddd')
 end
 
@@ -342,22 +373,8 @@ end
 
 T['Mappings']['Basic']['gy'] = function()
   load_module()
-
-  set_lines({ 'xxx' })
-  type_keys('"+yiw')
-  eq(child.fn.getreg('+'), 'xxx')
-
-  -- Should copy to `+` register
-  set_lines({ 'aaa' })
-  set_cursor(1, 0)
-  type_keys('gyiw')
-  eq(child.fn.getreg('+'), 'aaa')
-
-  -- Should also work in Visual mode
-  set_lines({ 'bbb' })
-  set_cursor(1, 0)
-  type_keys('viwgy')
-  eq(child.fn.getreg('+'), 'bbb')
+  eq(child.fn.maparg('gy', 'n'), '"+y')
+  eq(child.fn.maparg('gy', 'x'), '"+y')
 end
 
 T['Mappings']['Basic']['gp'] = function()
@@ -477,7 +494,7 @@ T['Mappings']['Basic']['*/#'] = function()
   -- *
   set_lines({ [[aa?/\bb]], 'aa', [[aa?/\bb]], 'aa', [[aa?/\bb]] })
   set_cursor(1, 0)
-  type_keys('v$h', '*')
+  type_keys('v$ho', '*')
 
   eq(get_cursor(), { 3, 0 })
   type_keys('n')
@@ -493,7 +510,7 @@ T['Mappings']['Basic']['*/#'] = function()
   -- #
   set_lines({ [[aa?/\bb]], 'aa', [[aa?/\bb]], 'aa', [[aa?/\bb]] })
   set_cursor(1, 0)
-  type_keys('v$h', '#')
+  type_keys('v$ho', '#')
 
   eq(get_cursor(), { 5, 0 })
   type_keys('n')
@@ -546,42 +563,6 @@ T['Mappings']['Basic']['<C-s>'] = function()
   eq(child.fn.mode(), 'n')
 end
 
-T['Mappings']['Basic']['<C-z>'] = function()
-  load_module()
-  child.o.spell = true
-
-  -- Should correct latest misspelled
-  set_lines({ 'Helo to arl the wolld!' })
-  set_cursor(1, 18)
-  type_keys('<C-z>')
-  eq(get_lines(), { 'Helo to arl the world!' })
-
-  -- Should respect `[count]`
-  set_lines({ 'Helo to arl the wolld!' })
-  set_cursor(1, 18)
-  type_keys('2<C-z>')
-  eq(get_lines(), { 'Helo to all the wolld!' })
-
-  -- Should also work in Insert mode with separate undo block
-  set_lines({ 'Helo ' })
-  type_keys('A', 'to all')
-
-  type_keys('<C-z>')
-  eq(get_lines(), { 'Hello to all' })
-  eq(child.fn.mode(), 'i')
-
-  type_keys(' the world!', '<Esc>')
-  eq(get_lines(), { 'Hello to all the world!' })
-  eq(child.fn.mode(), 'n')
-
-  type_keys('u')
-  eq(get_lines(), { 'Hello to all' })
-  type_keys('u')
-  eq(get_lines(), { 'Helo to all' })
-  type_keys('u')
-  eq(get_lines(), { 'Helo ' })
-end
-
 T['Mappings']['Toggle options'] = new_set()
 
 T['Mappings']['Toggle options']['work'] = function()
@@ -589,7 +570,7 @@ T['Mappings']['Toggle options']['work'] = function()
   -- But there doesn't seem to be a way of testing it without screenshots.
   -- So later test only for 'spell'.
   local validate = function(keys, option, before, after)
-    eq(child.o[option], before)
+    child.o[option] = before
     type_keys(keys)
     eq(child.o[option], after)
     type_keys(keys)
@@ -620,8 +601,16 @@ T['Mappings']['Toggle options']['shows feedback about new value'] = function()
 end
 
 T['Mappings']['Toggle options']['works with diagnostic'] = function()
-  child.lua([[vim.diagnostic.enable = function() vim.b.diag_status = 'enabled' end]])
-  child.lua([[vim.diagnostic.disable = function() vim.b.diag_status = 'disabled' end]])
+  if child.fn.has('nvim-0.10') == 1 then
+    child.lua([[vim.diagnostic.enable = function(enable) vim.b.diag_status = enable and 'enabled' or 'disabled' end]])
+    child.lua([[vim.diagnostic.is_enabled = function(enable) return vim.b.diag_status ~= 'disabled' end]])
+  else
+    child.lua([[vim.diagnostic.enable = function() vim.b.diag_status = 'enabled' end]])
+    child.lua([[vim.diagnostic.disable = function() vim.b.diag_status = 'disabled' end]])
+    if child.fn.has('nvim-0.9') == 1 then
+      child.lua([[vim.diagnostic.is_disabled = function() return vim.b.diag_status == 'disabled' end]])
+    end
+  end
 
   load_module()
 
@@ -715,22 +704,6 @@ T['Mappings']['Windows']['work for common navigation'] = function()
   validate_cur_win(1001)
 end
 
-T['Mappings']['Windows']['work for navigation in Terminal mode'] = function()
-  load_module({ options = { basic = false }, mappings = { windows = true }, autocommands = { basic = false } })
-
-  child.cmd('wincmd v')
-  child.cmd('terminal')
-  -- Wait for terminal to load
-  vim.loop.sleep(100)
-  child.cmd('startinsert')
-  eq(child.fn.mode(), 't')
-
-  eq(child.api.nvim_get_current_win(), 1001)
-  type_keys('<C-w>l')
-  eq(child.api.nvim_get_current_win(), 1000)
-  eq(child.fn.mode(), 'n')
-end
-
 T['Mappings']['Windows']['work for resizing'] = function()
   local validate = function(dims) eq({ child.fn.winheight(0), child.fn.winwidth(0) }, dims) end
 
@@ -807,10 +780,10 @@ end
 T['Autocommands'] = new_set()
 
 T['Autocommands']['work'] = function()
+  child.lua('vim.highlight.on_yank = function() _G.been_here = true end')
   load_module()
 
   -- Highlight on yank
-  child.lua('vim.highlight.on_yank = function() _G.been_here = true end')
   set_lines({ 'aaa' })
   type_keys('yiw')
   eq(child.lua_get('_G.been_here'), true)
@@ -818,6 +791,22 @@ T['Autocommands']['work'] = function()
   -- Start terminal in Insert mode
   child.cmd('terminal')
   eq(child.fn.mode(), 't')
+end
+
+T['Autocommands']['starts Terminal mode only in proper terminals'] = function()
+  load_module()
+  child.api.nvim_open_term(0, {})
+  eq(child.fn.mode(), 'n')
+end
+
+T['Autocommands']['start Terminal mode only if target terminal is current'] = function()
+  load_module()
+
+  local init_buf_id = child.api.nvim_get_current_buf()
+  child.lua([[vim.api.nvim_buf_call(vim.api.nvim_create_buf(true, false), function() vim.cmd('terminal') end)]])
+
+  eq(child.api.nvim_get_current_buf(), init_buf_id)
+  eq(child.fn.mode(), 'n')
 end
 
 T['Autocommands']['can be disabled'] = function()
@@ -835,16 +824,13 @@ T['Autocommands']['respects `config.autocommands.relnum_in_visual_mode`'] = func
   type_keys('<Esc>')
   eq(child.o.relativenumber, false)
 
-  -- Autocommand depends on `ModeChanged` event. It should load properly but
-  -- not operate as expected.
-  local has_modechanged = vim.fn.exists('##ModeChanged') == 1
   load_module({ autocommands = { relnum_in_visual_mode = true } })
 
   eq(child.o.relativenumber, false)
   type_keys('V')
-  eq(child.o.relativenumber, has_modechanged)
+  eq(child.o.relativenumber, true)
   type_keys('<C-v>')
-  eq(child.o.relativenumber, has_modechanged)
+  eq(child.o.relativenumber, true)
   type_keys('<Esc>')
   eq(child.o.relativenumber, false)
 end

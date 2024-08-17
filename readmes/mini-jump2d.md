@@ -36,7 +36,11 @@ https://user-images.githubusercontent.com/24854248/227734716-e7b6f2a8-4db1-441d-
     - Allowed lines: whether to process blank or folded lines, lines before/at/after cursor line, etc. Example: user can configure to look for spots only inside current window at or after cursor line.
     Example: user can configure to look for word starts only inside current window at or after cursor line with 'j' and 'k' labels performing some action after jump.
 - Works in Visual and Operator-pending (with dot-repeat) modes.
-- Preconfigured ways of computing jump spots (see help for `MiniJump2d.builtin_opts()`).
+- Preconfigured ways of computing jump spots (see help for `MiniJump2d.builtin_opts()`):
+    - Starts of lines.
+    - Starts of words.
+    - Single character from user input.
+    - Variable length query from user input.
 - Works with multibyte characters.
 
 ## Installation
@@ -49,6 +53,32 @@ There are two branches to install from:
 - `stable` will be updated only upon releases with code tested during public beta-testing phase in `main` branch.
 
 Here are code snippets for some common installation methods (use only one):
+
+<details>
+<summary>With <a href="https://github.com/echasnovski/mini.nvim/blob/main/readmes/mini-deps.md">mini.deps</a></summary>
+<table>
+    <thead>
+        <tr>
+            <th>Github repo</th>
+            <th>Branch</th> <th>Code snippet</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td rowspan=2>'mini.nvim' library</td> <td>Main</td> <td rowspan=2><i>Follow recommended 'mini.deps' installation</i></td>
+        </tr>
+        <tr>
+            <td>Stable</td>
+        </tr>
+        <tr>
+            <td rowspan=2>Standalone plugin</td> <td>Main</td> <td><code>add('echasnovski/mini.jump2d')</code></td>
+        </tr>
+        <tr>
+            <td>Stable</td> <td><code>add({ source = 'echasnovski/mini.jump2d', checkout = 'stable' })</code></td>
+        </tr>
+    </tbody>
+</table>
+</details>
 
 <details>
 <summary>With <a href="https://github.com/folke/lazy.nvim">folke/lazy.nvim</a></summary>
@@ -73,33 +103,6 @@ Here are code snippets for some common installation methods (use only one):
         </tr>
         <tr>
             <td>Stable</td> <td><code>{ 'echasnovski/mini.jump2d', version = '*' },</code></td>
-        </tr>
-    </tbody>
-</table>
-</details>
-
-<details>
-<summary>With <a href="https://github.com/wbthomason/packer.nvim">wbthomason/packer.nvim</a></summary>
-<table>
-    <thead>
-        <tr>
-            <th>Github repo</th>
-            <th>Branch</th> <th>Code snippet</th>
-        </tr>
-    </thead>
-    <tbody>
-        <tr>
-            <td rowspan=2>'mini.nvim' library</td>
-            <td>Main</td> <td><code>use 'echasnovski/mini.nvim'</code></td>
-        </tr>
-        <tr>
-            <td>Stable</td> <td><code>use { 'echasnovski/mini.nvim', branch = 'stable' }</code></td>
-        </tr>
-        <tr>
-            <td rowspan=2>Standalone plugin</td> <td>Main</td> <td><code>use 'echasnovski/mini.jump2d'</code></td>
-        </tr>
-        <tr>
-            <td>Stable</td> <td><code>use { 'echasnovski/mini.jump2d', branch = 'stable' }</code></td>
         </tr>
     </tbody>
 </table>

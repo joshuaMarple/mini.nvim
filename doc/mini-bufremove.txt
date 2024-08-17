@@ -9,7 +9,7 @@ Features:
 - Unshow, delete, and wipeout buffer while saving window layout
   (opposite to builtin Neovim's commands).
 
-# Setup~
+# Setup ~
 
 This module doesn't need setup, but it can be done to improve usability.
 Setup with `require('mini.bufremove').setup({})` (replace `{}` with your
@@ -23,16 +23,15 @@ will have no effect here.
 
 To stop module from showing non-error feedback, set `config.silent = true`.
 
-# Notes~
+# Notes ~
 
 1. Which buffer to show in window(s) after its current buffer is removed is
    decided by the algorithm:
    - If alternate buffer (see |CTRL-^|) is listed (see |buflisted()|), use it.
    - If previous listed buffer (see |bprevious|) is different, use it.
-   - Otherwise create a scratch one with `nvim_create_buf(true, true)` and use
-     it.
+   - Otherwise create a new one with `nvim_create_buf(true, false)` and use it.
 
-# Disabling~
+# Disabling ~
 
 To disable core functionality, set `vim.g.minibufremove_disable` (globally) or
 `vim.b.minibufremove_disable` (for a buffer) to `true`. Considering high
@@ -45,19 +44,22 @@ rules for disabling module's functionality is left to user. See
                         `MiniBufremove.setup`({config})
 Module setup
 
-Parameters~
+Parameters ~
 {config} `(table|nil)` Module config table. See |MiniBufremove.config|.
 
-Usage~
-`require('mini.bufremove').setup({})` (replace `{}` with your `config` table)
-
+Usage ~
+>lua
+  require('mini.bufremove').setup() -- use default config
+  -- OR
+  require('mini.bufremove').setup({}) -- replace {} with your config table
+<
 ------------------------------------------------------------------------------
                                                           *MiniBufremove.config*
                              `MiniBufremove.config`
 Module config
 
 Default values:
->
+>lua
   MiniBufremove.config = {
     -- Whether to set Vim's settings for buffers (allow hidden buffers)
     set_vim_settings = true,
@@ -66,19 +68,19 @@ Default values:
     silent = false,
   }
 <
-
 ------------------------------------------------------------------------------
                                                         *MiniBufremove.delete()*
                    `MiniBufremove.delete`({buf_id}, {force})
 Delete buffer `buf_id` with |:bdelete| after unshowing it
 
-Parameters~
+Parameters ~
 {buf_id} `(number|nil)` Buffer identifier (see |bufnr()|) to use.
   Default: 0 for current.
 {force} `(boolean|nil)` Whether to ignore unsaved changes (using `!` version of
-  command). Default: `false`.
+  command). If `false`, calling with unsaved changes will prompt confirm dialog.
+  Default: `false`.
 
-Return~
+Return ~
 `(boolean|nil)` Whether operation was successful. If `nil`, no operation was done.
 
 ------------------------------------------------------------------------------
@@ -86,13 +88,14 @@ Return~
                    `MiniBufremove.wipeout`({buf_id}, {force})
 Wipeout buffer `buf_id` with |:bwipeout| after unshowing it
 
-Parameters~
+Parameters ~
 {buf_id} `(number|nil)` Buffer identifier (see |bufnr()|) to use.
   Default: 0 for current.
 {force} `(boolean|nil)` Whether to ignore unsaved changes (using `!` version of
-  command). Default: `false`.
+  command). If `false`, calling with unsaved changes will prompt confirm dialog.
+  Default: `false`.
 
-Return~
+Return ~
 `(boolean|nil)` Whether operation was successful. If `nil`, no operation was done.
 
 ------------------------------------------------------------------------------
@@ -100,11 +103,11 @@ Return~
                         `MiniBufremove.unshow`({buf_id})
 Stop showing buffer `buf_id` in all windows
 
-Parameters~
+Parameters ~
 {buf_id} `(number|nil)` Buffer identifier (see |bufnr()|) to use.
   Default: 0 for current.
 
-Return~
+Return ~
 `(boolean|nil)` Whether operation was successful. If `nil`, no operation was done.
 
 ------------------------------------------------------------------------------
@@ -115,11 +118,11 @@ Stop showing current buffer of window `win_id`
 Notes:
 - If `win_id` represents |cmdline-window|, this function will close it.
 
-Parameters~
+Parameters ~
 {win_id} `(number|nil)` Window identifier (see |win_getid()|) to use.
   Default: 0 for current.
 
-Return~
+Return ~
 `(boolean|nil)` Whether operation was successful. If `nil`, no operation was done.
 
 

@@ -17,17 +17,22 @@
 --- - Sections can hide information when window is too narrow (specific window
 ---   width is configurable per section).
 ---
---- # Dependencies~
+--- # Dependencies ~
 ---
---- Suggested dependencies (provide extra functionality, statusline will work
---- without them):
+--- Suggested dependencies (provide extra functionality, will work without them):
+---
 --- - Nerd font (to support extra icons).
---- - Plugin 'lewis6991/gitsigns.nvim' for Git information in
----   |MiniStatusline.section_git|. If missing, no section will be shown.
---- - Plugin 'nvim-tree/nvim-web-devicons' for filetype icons in
----   `MiniStatusline.section_fileinfo`. If missing, no icons will be shown.
 ---
---- # Setup~
+--- - Enabled |MiniIcons| module for |MiniStatusline.section_fileinfo()|.
+---   Falls back to using 'nvim-tree/nvim-web-devicons' plugin or shows nothing.
+---
+--- - Enabled |MiniGit| module for |MiniStatusline.section_git()|.
+---   Falls back to using 'lewis6991/gitsigns.nvim' plugin or shows nothing.
+---
+--- - Enabled |MiniDiff| module for |MiniStatusline.section_diff()|.
+---   Falls back to using 'lewis6991/gitsigns.nvim' plugin or shows nothing.
+---
+--- # Setup ~
 ---
 --- This module needs a setup with `require('mini.statusline').setup({})`
 --- (replace `{}` with your `config` table). It will create global Lua table
@@ -41,7 +46,7 @@
 --- `vim.b.ministatusline_config` which should have same structure as
 --- `MiniStatusline.config`. See |mini.nvim-buffer-local-config| for more details.
 ---
---- # Highlight groups~
+--- # Highlight groups ~
 ---
 --- Highlight depending on mode (second output from |MiniStatusline.section_mode|):
 --- * `MiniStatuslineModeNormal` - Normal mode.
@@ -62,7 +67,7 @@
 ---
 --- To change any highlight group, modify it directly with |:highlight|.
 ---
---- # Disabling~
+--- # Disabling ~
 ---
 --- To disable (show empty statusline), set `vim.g.ministatusline_disable`
 --- (globally) or `vim.b.ministatusline_disable` (for a buffer) to `true`.
@@ -72,35 +77,38 @@
 
 --- Example content
 ---
---- # Default content~
+--- # Default content ~
 ---
---- This function is used as default value for active content:
---- >
+--- This function is used as default value for active content: >lua
+---
 ---   function()
 ---     local mode, mode_hl = MiniStatusline.section_mode({ trunc_width = 120 })
----     local git           = MiniStatusline.section_git({ trunc_width = 75 })
+---     local git           = MiniStatusline.section_git({ trunc_width = 40 })
+---     local diff          = MiniStatusline.section_diff({ trunc_width = 75 })
 ---     local diagnostics   = MiniStatusline.section_diagnostics({ trunc_width = 75 })
+---     local lsp           = MiniStatusline.section_lsp({ trunc_width = 75 })
 ---     local filename      = MiniStatusline.section_filename({ trunc_width = 140 })
 ---     local fileinfo      = MiniStatusline.section_fileinfo({ trunc_width = 120 })
 ---     local location      = MiniStatusline.section_location({ trunc_width = 75 })
+---     local search        = MiniStatusline.section_searchcount({ trunc_width = 75 })
 ---
 ---     return MiniStatusline.combine_groups({
 ---       { hl = mode_hl,                  strings = { mode } },
----       { hl = 'MiniStatuslineDevinfo',  strings = { git, diagnostics } },
+---       { hl = 'MiniStatuslineDevinfo',  strings = { git, diff, diagnostics, lsp } },
 ---       '%<', -- Mark general truncate point
 ---       { hl = 'MiniStatuslineFilename', strings = { filename } },
 ---       '%=', -- End left alignment
 ---       { hl = 'MiniStatuslineFileinfo', strings = { fileinfo } },
----       { hl = mode_hl,                  strings = { location } },
+---       { hl = mode_hl,                  strings = { search, location } },
 ---     })
 ---   end
 --- <
---- # Show boolean options~
+--- # Show boolean options ~
 ---
 --- To compute section string for boolean option use variation of this code
 --- snippet inside content function (you can modify option itself, truncation
---- width, short and long displayed names):
---- >
+--- width, short and long displayed names): >lua
+---
 ---   local spell = vim.wo.spell and (MiniStatusline.is_truncated(120) and 'S' or 'SPELL') or ''
 --- <
 --- Here `x and y or z` is a common Lua way of doing ternary operator: if `x`
@@ -118,17 +126,12 @@ local H = {}
 ---
 ---@param config table|nil Module config table. See |MiniStatusline.config|.
 ---
----@usage `require('mini.statusline').setup({})` (replace `{}` with your `config` table)
+---@usage >lua
+---   require('mini.statusline').setup() -- use default config
+---   -- OR
+---   require('mini.statusline').setup({}) -- replace {} with your config table
+--- <
 MiniStatusline.setup = function(config)
-  -- TODO: Remove after Neovim<=0.6 support is dropped
-  if vim.fn.has('nvim-0.7') == 0 then
-    vim.notify(
-      '(mini.statusline) Neovim<0.7 is soft deprecated (module works but not supported).'
-        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
-        .. ' Please update your Neovim version.'
-    )
-  end
-
   -- Export module
   _G.MiniStatusline = MiniStatusline
 
@@ -138,33 +141,14 @@ MiniStatusline.setup = function(config)
   -- Apply config
   H.apply_config(config)
 
-  -- Module behavior
-  vim.api.nvim_exec(
-    [[augroup MiniStatusline
-        au!
-        au WinEnter,BufEnter * setlocal statusline=%!v:lua.MiniStatusline.active()
-        au WinLeave,BufLeave * setlocal statusline=%!v:lua.MiniStatusline.inactive()
-      augroup END]],
-    false
-  )
+  -- Define behavior
+  H.create_autocommands()
+
   -- - Disable built-in statusline in Quickfix window
   vim.g.qf_disable_statusline = 1
 
-  -- Create highlighting
-  vim.api.nvim_exec(
-    [[hi default link MiniStatuslineModeNormal  Cursor
-      hi default link MiniStatuslineModeInsert  DiffChange
-      hi default link MiniStatuslineModeVisual  DiffAdd
-      hi default link MiniStatuslineModeReplace DiffDelete
-      hi default link MiniStatuslineModeCommand DiffText
-      hi default link MiniStatuslineModeOther   IncSearch
-
-      hi default link MiniStatuslineDevinfo  StatusLine
-      hi default link MiniStatuslineFilename StatusLineNC
-      hi default link MiniStatuslineFileinfo StatusLine
-      hi default link MiniStatuslineInactive StatusLineNC]],
-    false
-  )
+  -- Create default highlighting
+  H.create_default_hl()
 end
 
 --- Module config
@@ -184,9 +168,7 @@ MiniStatusline.config = {
   -- Whether to use icons by default
   use_icons = true,
 
-  -- Whether to set Vim's settings for statusline (make it always shown with
-  -- 'laststatus' set to 2). To use global statusline in Neovim>=0.7.0, set
-  -- this to `false` and 'laststatus' to 3.
+  -- Whether to set Vim's settings for statusline (make it always shown)
   set_vim_settings = true,
 }
 --minidoc_afterlines_end
@@ -223,7 +205,6 @@ end
 ---@return string String suitable for 'statusline'.
 MiniStatusline.combine_groups = function(groups)
   local parts = vim.tbl_map(function(s)
-    --stylua: ignore start
     if type(s) == 'string' then return s end
     if type(s) ~= 'table' then return '' end
 
@@ -231,17 +212,12 @@ MiniStatusline.combine_groups = function(groups)
     local str = table.concat(string_arr, ' ')
 
     -- Use previous highlight group
-    if s.hl == nil then
-      return (' %s '):format(str)
-    end
+    if s.hl == nil then return ' ' .. str .. ' ' end
 
     -- Allow using this highlight group later
-    if str:len() == 0 then
-      return string.format('%%#%s#', s.hl)
-    end
+    if str:len() == 0 then return '%#' .. s.hl .. '#' end
 
     return string.format('%%#%s# %s ', s.hl, str)
-    --stylua: ignore end
   end, groups)
 
   return table.concat(parts, '')
@@ -285,58 +261,104 @@ end
 
 --- Section for Git information
 ---
---- Normal output contains name of `HEAD` (via |b:gitsigns_head|) and chunk
---- information (via |b:gitsigns_status|). Short output - only name of `HEAD`.
---- Note: requires 'lewis6991/gitsigns' plugin.
+--- Shows Git summary from |MiniGit| (should be set up; recommended). To tweak
+--- formatting of what data is shown, modify buffer-local summary string directly
+--- as described in |MiniGit-examples|.
 ---
---- Short output is returned if window width is lower than `args.trunc_width`.
+--- If 'mini.git' is not set up, section falls back on 'lewis6991/gitsigns' data
+--- or showing empty string.
+---
+--- Empty string is returned if window width is lower than `args.trunc_width`.
 ---
 ---@param args __statusline_args Use `args.icon` to supply your own icon.
 ---
 ---@return __statusline_section
 MiniStatusline.section_git = function(args)
-  if H.isnt_normal_buffer() then return '' end
+  if MiniStatusline.is_truncated(args.trunc_width) then return '' end
 
-  local head = vim.b.gitsigns_head or '-'
-  local signs = MiniStatusline.is_truncated(args.trunc_width) and '' or (vim.b.gitsigns_status or '')
-  local icon = args.icon or (H.get_config().use_icons and '' or 'Git')
+  local summary = vim.b.minigit_summary_string or vim.b.gitsigns_head
+  if summary == nil then return '' end
 
-  if signs == '' then
-    if head == '-' or head == '' then return '' end
-    return string.format('%s %s', icon, head)
-  end
-  return string.format('%s %s %s', icon, head, signs)
+  local use_icons = H.use_icons or H.get_config().use_icons
+  local icon = args.icon or (use_icons and '' or 'Git')
+  return icon .. ' ' .. (summary == '' and '-' or summary)
+end
+
+--- Section for diff information
+---
+--- Shows diff summary from |MiniDiff| (should be set up; recommended). To tweak
+--- formatting of what data is shown, modify buffer-local summary string directly
+--- as described in |MiniDiff-diff-summary|.
+---
+--- If 'mini.diff' is not set up, section falls back on 'lewis6991/gitsigns' data
+--- or showing empty string.
+---
+--- Empty string is returned if window width is lower than `args.trunc_width`.
+---
+---@param args __statusline_args Use `args.icon` to supply your own icon.
+---
+---@return __statusline_section
+MiniStatusline.section_diff = function(args)
+  if MiniStatusline.is_truncated(args.trunc_width) then return '' end
+
+  local summary = vim.b.minidiff_summary_string or vim.b.gitsigns_status
+  if summary == nil then return '' end
+
+  local use_icons = H.use_icons or H.get_config().use_icons
+  local icon = args.icon or (use_icons and '' or 'Diff')
+  return icon .. ' ' .. (summary == '' and '-' or summary)
 end
 
 --- Section for Neovim's builtin diagnostics
 ---
---- Shows nothing if there is no attached LSP clients or for short output.
---- Otherwise uses builtin Neovim capabilities to compute and show number of
+--- Shows nothing if diagnostics is disabled, no diagnostic is set, or for short
+--- output. Otherwise uses |vim.diagnostic.get()| to compute and show number of
 --- errors ('E'), warnings ('W'), information ('I'), and hints ('H').
 ---
 --- Short output is returned if window width is lower than `args.trunc_width`.
 ---
 ---@param args __statusline_args Use `args.icon` to supply your own icon.
+---   Use `args.signs` to use custom signs per severity level name. For example: >lua
 ---
+---     { ERROR = '!', WARN = '?', INFO = '@', HINT = '*' }
+--- <
 ---@return __statusline_section
 MiniStatusline.section_diagnostics = function(args)
-  -- Assumption: there are no attached clients if table
-  -- `vim.lsp.buf_get_clients()` is empty
-  local hasnt_attached_client = next(vim.lsp.buf_get_clients()) == nil
-  local dont_show_lsp = MiniStatusline.is_truncated(args.trunc_width) or H.isnt_normal_buffer() or hasnt_attached_client
-  if dont_show_lsp then return '' end
+  if MiniStatusline.is_truncated(args.trunc_width) or H.diagnostic_is_disabled() then return '' end
 
-  -- Construct diagnostic info using predefined order
-  local t = {}
+  -- Construct string parts
+  local count = H.diagnostic_get_count()
+  local severity, signs, t = vim.diagnostic.severity, args.signs or {}, {}
   for _, level in ipairs(H.diagnostic_levels) do
-    local n = H.get_diagnostic_count(level.id)
+    local n = count[severity[level.name]] or 0
     -- Add level info only if diagnostic is present
-    if n > 0 then table.insert(t, string.format(' %s%s', level.sign, n)) end
+    if n > 0 then table.insert(t, ' ' .. (signs[level.name] or level.sign) .. n) end
   end
+  if #t == 0 then return '' end
 
-  local icon = args.icon or (H.get_config().use_icons and '' or 'LSP')
-  if vim.tbl_count(t) == 0 then return ('%s -'):format(icon) end
-  return string.format('%s%s', icon, table.concat(t, ''))
+  local use_icons = H.use_icons or H.get_config().use_icons
+  local icon = args.icon or (use_icons and '' or 'Diag')
+  return icon .. table.concat(t, '')
+end
+
+--- Section for attached LSP servers
+---
+--- Shows number of LSP servers (each as separate "+" character) attached to
+--- current buffer or nothing if none is attached.
+--- Nothing is shown if window width is lower than `args.trunc_width`.
+---
+---@param args __statusline_args Use `args.icon` to supply your own icon.
+---
+---@return __statusline_section
+MiniStatusline.section_lsp = function(args)
+  if MiniStatusline.is_truncated(args.trunc_width) then return '' end
+
+  local attached = H.get_attached_lsp()
+  if attached == '' then return '' end
+
+  local use_icons = H.use_icons or H.get_config().use_icons
+  local icon = args.icon or (use_icons and '󰰎' or 'LSP')
+  return icon .. ' ' .. attached
 end
 
 --- Section for file name
@@ -364,8 +386,13 @@ end
 
 --- Section for file information
 ---
---- Short output contains only extension and is returned if window width is
---- lower than `args.trunc_width`.
+--- Short output contains only buffer's 'filetype' and is returned if window
+--- width is lower than `args.trunc_width` or buffer is not normal.
+---
+--- Nothing is shown if there is no 'filetype' set (treated as temporary buffer).
+---
+--- If `config.use_icons` is true and icon provider is present (see
+--- "Dependencies" section in |mini.statusline|), shows icon near the filetype.
 ---
 ---@param args __statusline_args
 ---
@@ -373,16 +400,15 @@ end
 MiniStatusline.section_fileinfo = function(args)
   local filetype = vim.bo.filetype
 
-  -- Don't show anything if can't detect file type or not inside a "normal
-  -- buffer"
-  if (filetype == '') or H.isnt_normal_buffer() then return '' end
+  -- Don't show anything if there is no filetype
+  if filetype == '' then return '' end
 
   -- Add filetype icon
-  local icon = H.get_filetype_icon()
-  if icon ~= '' then filetype = string.format('%s %s', icon, filetype) end
+  H.ensure_get_icon()
+  if H.get_icon ~= nil then filetype = H.get_icon(filetype) .. ' ' .. filetype end
 
-  -- Construct output string if truncated
-  if MiniStatusline.is_truncated(args.trunc_width) then return filetype end
+  -- Construct output string if truncated or buffer is not normal
+  if MiniStatusline.is_truncated(args.trunc_width) or vim.bo.buftype ~= '' then return filetype end
 
   -- Construct output string with extra file info
   local encoding = vim.bo.fileencoding or vim.bo.encoding
@@ -395,8 +421,8 @@ end
 --- Section for location inside buffer
 ---
 --- Show location inside buffer in the form:
---- - Normal: '<cursor line>|<total lines>│<cursor column>|<total columns>'.
---- - Short: '<cursor line>│<cursor column>'.
+--- - Normal: `'<cursor line>|<total lines>│<cursor column>|<total columns>'`
+--- - Short: `'<cursor line>│<cursor column>'`
 ---
 --- Short output is returned if window width is lower than `args.trunc_width`.
 ---
@@ -417,10 +443,10 @@ end
 --- window width is lower than `args.trunc_width`, search highlighting is not
 --- on (see |v:hlsearch|), or if number of search result is 0.
 ---
---- `args.options` is forwarded to |searchcount()|.  By default it recomputes
+--- `args.options` is forwarded to |searchcount()|. By default it recomputes
 --- data on every call which can be computationally expensive (although still
---- usually same order of magnitude as 0.1 ms). To prevent this, supply
---- `args.options = {recompute = false}`.
+--- usually on 0.1 ms order of magnitude). To prevent this, supply
+--- `args.options = { recompute = false }`.
 ---
 ---@param args __statusline_args
 ---
@@ -434,23 +460,26 @@ MiniStatusline.section_searchcount = function(args)
 
   if s_count.incomplete == 1 then return '?/?' end
 
-  local too_many = ('>%d'):format(s_count.maxcount)
+  local too_many = '>' .. s_count.maxcount
   local current = s_count.current > s_count.maxcount and too_many or s_count.current
   local total = s_count.total > s_count.maxcount and too_many or s_count.total
-  return ('%s/%s'):format(current, total)
+  return current .. '/' .. total
 end
 
 -- Helper data ================================================================
 -- Module default config
-H.default_config = MiniStatusline.config
+H.default_config = vim.deepcopy(MiniStatusline.config)
 
 -- Showed diagnostic levels
 H.diagnostic_levels = {
-  { id = vim.diagnostic.severity.ERROR, sign = 'E' },
-  { id = vim.diagnostic.severity.WARN, sign = 'W' },
-  { id = vim.diagnostic.severity.INFO, sign = 'I' },
-  { id = vim.diagnostic.severity.HINT, sign = 'H' },
+  { name = 'ERROR', sign = 'E' },
+  { name = 'WARN', sign = 'W' },
+  { name = 'INFO', sign = 'I' },
+  { name = 'HINT', sign = 'H' },
 }
+
+-- String representation of attached LSP clients per buffer id
+H.attached_lsp = {}
 
 -- Helper functionality =======================================================
 -- Settings -------------------------------------------------------------------
@@ -458,7 +487,7 @@ H.setup_config = function(config)
   -- General idea: if some table elements are not present in user-supplied
   -- `config`, take them from default config
   vim.validate({ config = { config, 'table', true } })
-  config = vim.tbl_deep_extend('force', H.default_config, config or {})
+  config = vim.tbl_deep_extend('force', vim.deepcopy(H.default_config), config or {})
 
   -- Validate per nesting level to produce correct error message
   vim.validate({
@@ -479,9 +508,51 @@ H.apply_config = function(config)
   MiniStatusline.config = config
 
   -- Set settings to ensure statusline is displayed properly
-  if config.set_vim_settings then
-    vim.o.laststatus = 2 -- Always show statusline
+  if config.set_vim_settings and (vim.o.laststatus == 0 or vim.o.laststatus == 1) then vim.o.laststatus = 2 end
+
+  -- Ensure proper 'statusline' values (to not rely on autocommands trigger)
+  H.ensure_content()
+
+  -- Set global value to reduce flickering when first time entering buffer, as
+  -- it is used by default before content is ensured on next loop
+  vim.go.statusline = '%{%v:lua.MiniStatusline.active()%}'
+end
+
+H.create_autocommands = function()
+  local augroup = vim.api.nvim_create_augroup('MiniStatusline', {})
+
+  local au = function(event, pattern, callback, desc)
+    vim.api.nvim_create_autocmd(event, { group = augroup, pattern = pattern, callback = callback, desc = desc })
   end
+
+  au({ 'WinEnter', 'BufWinEnter' }, '*', H.ensure_content, 'Ensure statusline content')
+
+  -- Use `schedule_wrap()` because at `LspDetach` server is still present
+  local track_lsp = vim.schedule_wrap(function(data)
+    H.attached_lsp[data.buf] = H.compute_attached_lsp(data.buf)
+    vim.cmd('redrawstatus')
+  end)
+  au({ 'LspAttach', 'LspDetach' }, '*', track_lsp, 'Track LSP clients')
+end
+
+--stylua: ignore
+H.create_default_hl = function()
+  local set_default_hl = function(name, data)
+    data.default = true
+    vim.api.nvim_set_hl(0, name, data)
+  end
+
+  set_default_hl('MiniStatuslineModeNormal',  { link = 'Cursor' })
+  set_default_hl('MiniStatuslineModeInsert',  { link = 'DiffChange' })
+  set_default_hl('MiniStatuslineModeVisual',  { link = 'DiffAdd' })
+  set_default_hl('MiniStatuslineModeReplace', { link = 'DiffDelete' })
+  set_default_hl('MiniStatuslineModeCommand', { link = 'DiffText' })
+  set_default_hl('MiniStatuslineModeOther',   { link = 'IncSearch' })
+
+  set_default_hl('MiniStatuslineDevinfo',  { link = 'StatusLine' })
+  set_default_hl('MiniStatuslineFilename', { link = 'StatusLineNC' })
+  set_default_hl('MiniStatuslineFileinfo', { link = 'StatusLine' })
+  set_default_hl('MiniStatuslineInactive', { link = 'StatusLineNC' })
 end
 
 H.is_disabled = function() return vim.g.ministatusline_disable == true or vim.b.ministatusline_disable == true end
@@ -489,6 +560,17 @@ H.is_disabled = function() return vim.g.ministatusline_disable == true or vim.b.
 H.get_config = function(config)
   return vim.tbl_deep_extend('force', MiniStatusline.config, vim.b.ministatusline_config or {}, config or {})
 end
+
+-- Content --------------------------------------------------------------------
+H.ensure_content = vim.schedule_wrap(function()
+  -- NOTE: Use `schedule_wrap()` to properly work inside autocommands because
+  -- they might temporarily change current window
+  local cur_win_id, is_global_stl = vim.api.nvim_get_current_win(), vim.o.laststatus == 3
+  for _, win_id in ipairs(vim.api.nvim_list_wins()) do
+    vim.wo[win_id].statusline = (win_id == cur_win_id or is_global_stl) and '%{%v:lua.MiniStatusline.active()%}'
+      or '%{%v:lua.MiniStatusline.inactive()%}'
+  end
+end)
 
 -- Mode -----------------------------------------------------------------------
 -- Custom `^V` and `^S` symbols to make this file appropriate for copy-paste
@@ -520,38 +602,65 @@ H.modes = setmetatable({
 -- stylua: ignore end
 
 -- Default content ------------------------------------------------------------
+--stylua: ignore
 H.default_content_active = function()
-  -- stylua: ignore start
+  H.use_icons = H.get_config().use_icons
   local mode, mode_hl = MiniStatusline.section_mode({ trunc_width = 120 })
-  local git           = MiniStatusline.section_git({ trunc_width = 75 })
+  local git           = MiniStatusline.section_git({ trunc_width = 40 })
+  local diff          = MiniStatusline.section_diff({ trunc_width = 75 })
   local diagnostics   = MiniStatusline.section_diagnostics({ trunc_width = 75 })
+  local lsp           = MiniStatusline.section_lsp({ trunc_width = 75 })
   local filename      = MiniStatusline.section_filename({ trunc_width = 140 })
   local fileinfo      = MiniStatusline.section_fileinfo({ trunc_width = 120 })
   local location      = MiniStatusline.section_location({ trunc_width = 75 })
+  local search        = MiniStatusline.section_searchcount({ trunc_width = 75 })
+  H.use_icons = nil
 
   -- Usage of `MiniStatusline.combine_groups()` ensures highlighting and
   -- correct padding with spaces between groups (accounts for 'missing'
   -- sections, etc.)
   return MiniStatusline.combine_groups({
     { hl = mode_hl,                  strings = { mode } },
-    { hl = 'MiniStatuslineDevinfo',  strings = { git, diagnostics } },
+    { hl = 'MiniStatuslineDevinfo',  strings = { git, diff, diagnostics, lsp } },
     '%<', -- Mark general truncate point
     { hl = 'MiniStatuslineFilename', strings = { filename } },
     '%=', -- End left alignment
     { hl = 'MiniStatuslineFileinfo', strings = { fileinfo } },
-    { hl = mode_hl,                  strings = { location } },
+    { hl = mode_hl,                  strings = { search, location } },
   })
-  -- stylua: ignore end
 end
 
 H.default_content_inactive = function() return '%#MiniStatuslineInactive#%F%=' end
 
--- Utilities ------------------------------------------------------------------
-H.isnt_normal_buffer = function()
-  -- For more information see ":h buftype"
-  return vim.bo.buftype ~= ''
+-- LSP ------------------------------------------------------------------------
+H.get_attached_lsp = function() return H.attached_lsp[vim.api.nvim_get_current_buf()] or '' end
+
+H.compute_attached_lsp = function(buf_id) return string.rep('+', vim.tbl_count(H.get_buf_lsp_clients(buf_id))) end
+
+H.get_buf_lsp_clients = function(buf_id) return vim.lsp.get_clients({ bufnr = buf_id }) end
+if vim.fn.has('nvim-0.10') == 0 then
+  H.get_buf_lsp_clients = function(buf_id) return vim.lsp.buf_get_clients(buf_id) end
 end
 
+-- Diagnostics ----------------------------------------------------------------
+H.diagnostic_get_count = function()
+  local res = {}
+  for _, d in ipairs(vim.diagnostic.get(0)) do
+    res[d.severity] = (res[d.severity] or 0) + 1
+  end
+  return res
+end
+if vim.fn.has('nvim-0.10') == 1 then H.diagnostic_get_count = function() return vim.diagnostic.count(0) end end
+
+if vim.fn.has('nvim-0.10') == 1 then
+  H.diagnostic_is_disabled = function(_) return not vim.diagnostic.is_enabled({ bufnr = 0 }) end
+elseif vim.fn.has('nvim-0.9') == 1 then
+  H.diagnostic_is_disabled = function(_) return vim.diagnostic.is_disabled(0) end
+else
+  H.diagnostic_is_disabled = function(_) return false end
+end
+
+-- Utilities ------------------------------------------------------------------
 H.get_filesize = function()
   local size = vim.fn.getfsize(vim.fn.getreg('%'))
   if size < 1024 then
@@ -563,17 +672,22 @@ H.get_filesize = function()
   end
 end
 
-H.get_filetype_icon = function()
-  -- Skip if NerdFonts is disabled
-  if not H.get_config().use_icons then return '' end
-  -- Have this `require()` here to not depend on plugin initialization order
-  local has_devicons, devicons = pcall(require, 'nvim-web-devicons')
-  if not has_devicons then return '' end
-
-  local file_name, file_ext = vim.fn.expand('%:t'), vim.fn.expand('%:e')
-  return devicons.get_icon(file_name, file_ext, { default = true })
+H.ensure_get_icon = function()
+  if not (H.use_icons or H.get_config().use_icons) then
+    -- Show no icon
+    H.get_icon = nil
+  elseif H.get_icon ~= nil then
+    -- Cache only once
+    return
+  elseif _G.MiniIcons ~= nil then
+    -- Prefer 'mini.icons'
+    H.get_icon = function(filetype) return (_G.MiniIcons.get('filetype', filetype)) end
+  else
+    -- Try falling back to 'nvim-web-devicons'
+    local has_devicons, devicons = pcall(require, 'nvim-web-devicons')
+    if not has_devicons then return end
+    H.get_icon = function() return (devicons.get_icon(vim.fn.expand('%:t'), nil, { default = true })) end
+  end
 end
-
-H.get_diagnostic_count = function(id) return #vim.diagnostic.get(0, { severity = id }) end
 
 return MiniStatusline

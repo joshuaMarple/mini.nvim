@@ -40,6 +40,7 @@ https://user-images.githubusercontent.com/24854248/175773105-f33cd3bb-6f62-4a61-
     - `MiniTest.gen_reporter.buffer()` for interactive usage.
     - `MiniTest.gen_reporter.stdout()` for headless Neovim.
 - Customizable project specific testing script.
+- Works on Unix (Linux, MacOS, etc.) and Windows.
 
 ## Installation
 
@@ -51,6 +52,32 @@ There are two branches to install from:
 - `stable` will be updated only upon releases with code tested during public beta-testing phase in `main` branch.
 
 Here are code snippets for some common installation methods (use only one):
+
+<details>
+<summary>With <a href="https://github.com/echasnovski/mini.nvim/blob/main/readmes/mini-deps.md">mini.deps</a></summary>
+<table>
+    <thead>
+        <tr>
+            <th>Github repo</th>
+            <th>Branch</th> <th>Code snippet</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td rowspan=2>'mini.nvim' library</td> <td>Main</td> <td rowspan=2><i>Follow recommended 'mini.deps' installation</i></td>
+        </tr>
+        <tr>
+            <td>Stable</td>
+        </tr>
+        <tr>
+            <td rowspan=2>Standalone plugin</td> <td>Main</td> <td><code>add('echasnovski/mini.test')</code></td>
+        </tr>
+        <tr>
+            <td>Stable</td> <td><code>add({ source = 'echasnovski/mini.test', checkout = 'stable' })</code></td>
+        </tr>
+    </tbody>
+</table>
+</details>
 
 <details>
 <summary>With <a href="https://github.com/folke/lazy.nvim">folke/lazy.nvim</a></summary>
@@ -75,33 +102,6 @@ Here are code snippets for some common installation methods (use only one):
         </tr>
         <tr>
             <td>Stable</td> <td><code>{ 'echasnovski/mini.test', version = '*' },</code></td>
-        </tr>
-    </tbody>
-</table>
-</details>
-
-<details>
-<summary>With <a href="https://github.com/wbthomason/packer.nvim">wbthomason/packer.nvim</a></summary>
-<table>
-    <thead>
-        <tr>
-            <th>Github repo</th>
-            <th>Branch</th> <th>Code snippet</th>
-        </tr>
-    </thead>
-    <tbody>
-        <tr>
-            <td rowspan=2>'mini.nvim' library</td>
-            <td>Main</td> <td><code>use 'echasnovski/mini.nvim'</code></td>
-        </tr>
-        <tr>
-            <td>Stable</td> <td><code>use { 'echasnovski/mini.nvim', branch = 'stable' }</code></td>
-        </tr>
-        <tr>
-            <td rowspan=2>Standalone plugin</td> <td>Main</td> <td><code>use 'echasnovski/mini.test'</code></td>
-        </tr>
-        <tr>
-            <td>Stable</td> <td><code>use { 'echasnovski/mini.test', branch = 'stable' }</code></td>
         </tr>
     </tbody>
 </table>

@@ -6,8 +6,6 @@
 
 ### Minimal and fast tabline showing listed buffers
 
-For full experience needs [nvim-tree/nvim-web-devicons](https://github.com/nvim-tree/nvim-web-devicons) plugin (but works without it).
-
 See more details in [Features](#features) and [help file](../doc/mini-tabline.txt).
 
 ---
@@ -35,6 +33,12 @@ https://user-images.githubusercontent.com/24854248/173045373-f5bdea82-fe3e-4488-
 - 'Buffer tabs' are clickable if Neovim allows it.
 - Allow showing extra information section in case of multiple Neovim tabpages.
 
+## Dependencies
+
+For full experience needs (still works without any of suggestions):
+
+- Enabled ['mini.icons'](https://github.com/echasnovski/mini.nvim/blob/main/readmes/mini-icons.md) module to show icons near file names. Can fall back to using [nvim-tree/nvim-web-devicons](https://github.com/nvim-tree/nvim-web-devicons) plugin.
+
 ## Installation
 
 This plugin can be installed as part of 'mini.nvim' library (**recommended**) or as a standalone Git repository.
@@ -45,6 +49,32 @@ There are two branches to install from:
 - `stable` will be updated only upon releases with code tested during public beta-testing phase in `main` branch.
 
 Here are code snippets for some common installation methods (use only one):
+
+<details>
+<summary>With <a href="https://github.com/echasnovski/mini.nvim/blob/main/readmes/mini-deps.md">mini.deps</a></summary>
+<table>
+    <thead>
+        <tr>
+            <th>Github repo</th>
+            <th>Branch</th> <th>Code snippet</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td rowspan=2>'mini.nvim' library</td> <td>Main</td> <td rowspan=2><i>Follow recommended 'mini.deps' installation</i></td>
+        </tr>
+        <tr>
+            <td>Stable</td>
+        </tr>
+        <tr>
+            <td rowspan=2>Standalone plugin</td> <td>Main</td> <td><code>add('echasnovski/mini.tabline')</code></td>
+        </tr>
+        <tr>
+            <td>Stable</td> <td><code>add({ source = 'echasnovski/mini.tabline', checkout = 'stable' })</code></td>
+        </tr>
+    </tbody>
+</table>
+</details>
 
 <details>
 <summary>With <a href="https://github.com/folke/lazy.nvim">folke/lazy.nvim</a></summary>
@@ -69,33 +99,6 @@ Here are code snippets for some common installation methods (use only one):
         </tr>
         <tr>
             <td>Stable</td> <td><code>{ 'echasnovski/mini.tabline', version = '*' },</code></td>
-        </tr>
-    </tbody>
-</table>
-</details>
-
-<details>
-<summary>With <a href="https://github.com/wbthomason/packer.nvim">wbthomason/packer.nvim</a></summary>
-<table>
-    <thead>
-        <tr>
-            <th>Github repo</th>
-            <th>Branch</th> <th>Code snippet</th>
-        </tr>
-    </thead>
-    <tbody>
-        <tr>
-            <td rowspan=2>'mini.nvim' library</td>
-            <td>Main</td> <td><code>use 'echasnovski/mini.nvim'</code></td>
-        </tr>
-        <tr>
-            <td>Stable</td> <td><code>use { 'echasnovski/mini.nvim', branch = 'stable' }</code></td>
-        </tr>
-        <tr>
-            <td rowspan=2>Standalone plugin</td> <td>Main</td> <td><code>use 'echasnovski/mini.tabline'</code></td>
-        </tr>
-        <tr>
-            <td>Stable</td> <td><code>use { 'echasnovski/mini.tabline', branch = 'stable' }</code></td>
         </tr>
     </tbody>
 </table>
@@ -141,8 +144,12 @@ Here are code snippets for some common installation methods (use only one):
 ```lua
 -- No need to copy this inside `setup()`. Will be used automatically.
 {
-  -- Whether to show file icons (requires 'nvim-tree/nvim-web-devicons')
+  -- Whether to show file icons (requires 'mini.icons')
   show_icons = true,
+
+  -- Function which formats the tab label
+  -- By default surrounds with space and possibly prepends with icon
+  format = nil,
 
   -- Whether to set Vim's settings for tabline (make it always shown and
   -- allow hidden buffers)

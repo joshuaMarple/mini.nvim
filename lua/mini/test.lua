@@ -32,6 +32,8 @@
 ---
 --- - Customizable project specific testing script.
 ---
+--- - Works on Unix (Linux, MacOS, etc.) and Windows.
+---
 --- What it doesn't support:
 --- - Parallel execution. Due to idea of limiting implementation complexity.
 ---
@@ -66,7 +68,7 @@
 ---       order while allowing reporting progress in asynchronous fashion.
 ---       Detected errors means test case fail; otherwise - pass.
 ---
---- # Setup~
+--- # Setup ~
 ---
 --- This module needs a setup with `require('mini.test').setup({})` (replace
 --- `{}` with your `config` table). It will create global Lua table `MiniTest`
@@ -80,7 +82,7 @@
 ---
 --- To stop module from showing non-error feedback, set `config.silent = true`.
 ---
---- # Comparisons~
+--- # Comparisons ~
 ---
 --- - Testing infrastructure from 'nvim-lua/plenary.nvim':
 ---     - Executes each file in separate headless Neovim process with customizable
@@ -117,7 +119,7 @@
 ---   `before_each()` and `after_each` to `pre_case` and `post_case` hooks.
 --- - Make test cases from `it` blocks.
 ---
---- # Highlight groups~
+--- # Highlight groups ~
 ---
 --- * `MiniTestEmphasis` - emphasis highlighting. By default it is a bold text.
 --- * `MiniTestFail` - highlighting of failed cases. By default it is a bold
@@ -127,7 +129,7 @@
 ---
 --- To change any highlight group, modify it directly with |:highlight|.
 ---
---- # Disabling~
+--- # Disabling ~
 ---
 --- To disable, set `vim.g.minitest_disable` (globally) or `vim.b.minitest_disable`
 --- (for a buffer) to `true`. Considering high number of different scenarios
@@ -143,17 +145,12 @@ local H = {}
 ---
 ---@param config table|nil Module config table. See |MiniTest.config|.
 ---
----@usage `require('mini.test').setup({})` (replace `{}` with your `config` table)
+---@usage >lua
+---   require('mini.test').setup() -- use default config
+---   -- OR
+---   require('mini.test').setup({}) -- replace {} with your config table
+--- <
 MiniTest.setup = function(config)
-  -- TODO: Remove after Neovim<=0.6 support is dropped
-  if vim.fn.has('nvim-0.7') == 0 then
-    vim.notify(
-      '(mini.test) Neovim<0.7 is soft deprecated (module works but not supported).'
-        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
-        .. ' Please update your Neovim version.'
-    )
-  end
-
   -- Export module
   _G.MiniTest = MiniTest
 
@@ -163,29 +160,11 @@ MiniTest.setup = function(config)
   -- Apply config
   H.apply_config(config)
 
-  -- Create highlighting
-  local color_fail = vim.g.terminal_color_1 or '#FF0000'
-  local color_pass = vim.g.terminal_color_2 or '#00FF00'
-  local command = string.format(
-    [[hi default MiniTestFail guifg=%s gui=bold
-      hi default MiniTestPass guifg=%s gui=bold
-      hi default MiniTestEmphasis gui=bold]],
-    color_fail,
-    color_pass
-  )
-  vim.cmd(command)
+  -- Define behavior
+  H.create_autocommands()
 
-  local augroup_hl_cmd = string.format(
-    [[augroup MiniTest
-        au!
-        au ColorScheme * hi default MiniTestFail guifg=%s gui=bold
-        au ColorScheme * hi default MiniTestPass guifg=%s gui=bold
-        au ColorScheme * hi default MiniTestEmphasis gui=bold
-      augroup END]],
-    color_fail,
-    color_pass
-  )
-  vim.cmd(augroup_hl_cmd)
+  -- Create default highlighting
+  H.create_default_hl()
 end
 
 --stylua: ignore start
@@ -298,7 +277,7 @@ MiniTest.current = { all_cases = nil, case = nil }
 ---
 ---@return table A single test set.
 ---
----@usage >
+---@usage >lua
 ---   -- Use with defaults
 ---   T = MiniTest.new_set()
 ---   T['works'] = function() MiniTest.expect.equality(1, 1) end
@@ -313,6 +292,7 @@ MiniTest.current = { all_cases = nil, case = nil }
 ---   T['nested']['works'] = function(x)
 ---     MiniTest.expect.equality(_G.x, x)
 ---   end
+--- <
 MiniTest.new_set = function(opts, tbl)
   opts = opts or {}
   tbl = tbl or {}
@@ -425,7 +405,7 @@ end
 ---@param file string|nil Path to test file. By default a path of current buffer.
 ---@param opts table|nil Options for |MiniTest.run()|.
 MiniTest.run_file = function(file, opts)
-  file = file or vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ':.')
+  file = vim.fn.fnamemodify(file or vim.api.nvim_buf_get_name(0), ':p:.')
 
   local stronger_opts = { collect = { find_files = function() return { file } end } }
   opts = vim.tbl_deep_extend('force', opts or {}, stronger_opts)
@@ -628,24 +608,22 @@ MiniTest.execute = function(cases, opts)
     vim.schedule(function() MiniTest.current.case = cur_case end)
 
     for i, hook_pre in ipairs(cur_case.hooks.pre) do
-      schedule_step(hook_pre, [[Executing 'pre' hook #]] .. i)
+      schedule_step(hook_pre, 'hook_pre', [[Executing 'pre' hook #]] .. i)
     end
 
-    schedule_step(function() cur_case.test(unpack(cur_case.args)) end, 'Executing test')
+    schedule_step(function() cur_case.test(unpack(cur_case.args)) end, 'case', 'Executing test')
 
     for i, hook_post in ipairs(cur_case.hooks.post) do
-      schedule_step(hook_post, [[Executing 'post' hook #]] .. i)
+      schedule_step(hook_post, 'hook_post', [[Executing 'post' hook #]] .. i)
     end
 
     -- Finalize state
-    schedule_step(nil, function() return H.case_final_state(cur_case) end)
+    schedule_step(nil, 'finalize', function() return H.case_final_state(cur_case) end)
   end
 
-  --stylua: ignore start
   vim.schedule(function() H.exec_callable(reporter.finish) end)
   -- Use separate call to ensure that `reporter.finish` error won't interfere
   vim.schedule(function() H.cache.is_executing = false end)
-  --stylua: ignore end
 end
 
 --- Stop test execution
@@ -682,10 +660,11 @@ MiniTest.is_executing = function() return H.cache.is_executing == true end
 ---
 --- Mostly designed to be used within 'mini.test' framework.
 ---
----@usage >
+---@usage >lua
 ---   local x = 1 + 1
 ---   MiniTest.expect.equality(x, 2) -- passes
 ---   MiniTest.expect.equality(x, 1) -- fails
+--- <
 MiniTest.expect = {}
 
 --- Expect equality of two objects
@@ -757,8 +736,10 @@ end
 ---   total number of times it was called inside current case. If there is no
 ---   file at `path`, it is created with content of `screenshot`.
 ---@param opts table|nil Options:
----   - <force> - whether to forcefuly create reference screenshot.
+---   - <force> `(boolean)` - whether to forcefully create reference screenshot.
 ---     Temporary useful during test writing. Default: `false`.
+---   - <ignore_lines> `(table)` - array of line numbers to ignore during compare.
+---     Default: `nil` to check all lines.
 MiniTest.expect.reference_screenshot = function(screenshot, path, opts)
   if screenshot == nil then return true end
 
@@ -768,7 +749,7 @@ MiniTest.expect.reference_screenshot = function(screenshot, path, opts)
 
   if path == nil then
     -- Sanitize path. Replace any control characters, whitespace, OS specific
-    -- forbidden characters with '-' (with some usefule exception)
+    -- forbidden characters with '-' (with some useful exception)
     local linux_forbidden = [[/]]
     local windows_forbidden = [[<>:"/\|?*]]
     local pattern = string.format('[%%c%%s%s%s]', vim.pesc(linux_forbidden), vim.pesc(windows_forbidden))
@@ -797,7 +778,7 @@ MiniTest.expect.reference_screenshot = function(screenshot, path, opts)
   local reference = H.screenshot_read(path)
 
   -- Compare
-  local are_same, cause = H.screenshot_compare(reference, screenshot)
+  local are_same, cause = H.screenshot_compare(reference, screenshot, opts)
 
   if are_same then return true end
 
@@ -820,12 +801,13 @@ end
 ---
 ---@return function Expectation function.
 ---
----@usage >
+---@usage >lua
 ---   local expect_truthy = MiniTest.new_expectation(
 ---     'truthy',
 ---     function(x) return x end,
 ---     function(x) return 'Object: ' .. vim.inspect(x) end
 ---   )
+--- <
 MiniTest.new_expectation = function(subject, predicate, fail_context)
   return function(...)
     if predicate(...) then return true end
@@ -903,10 +885,11 @@ MiniTest.gen_reporter.buffer = function(opts)
   local is_valid_buf_win = function() return vim.api.nvim_buf_is_valid(buf_id) and vim.api.nvim_win_is_valid(win_id) end
 
   -- Helpers
-  local set_cursor =
-    function(line) vim.api.nvim_win_set_cursor(win_id, { line or vim.api.nvim_buf_line_count(buf_id), 0 }) end
+  local set_cursor = function(line)
+    vim.api.nvim_win_set_cursor(win_id, { line or vim.api.nvim_buf_line_count(buf_id), 0 })
+  end
 
-  -- Define "write from crusor line" function with throttled redraw
+  -- Define "write from cursor line" function with throttled redraw
   local latest_draw_time = 0
   local replace_last = function(n_replace, lines, force)
     H.buffer_reporter.set_lines(buf_id, lines, -n_replace - 1, -1)
@@ -1049,15 +1032,15 @@ end
 --- Create child Neovim process
 ---
 --- This creates an object designed to be a fundamental piece of 'mini.test'
---- methodology. It can start/stop/restart a separate (child) Neovim process in
---- full (non-headless) mode together with convenience helpers to interact with
---- it through |RPC| messages.
+--- methodology. It can start/stop/restart a separate (child) Neovim process
+--- (headless, but fully functioning) together with convenience helpers to
+--- interact with it through |RPC| messages.
 ---
 --- For more information see |MiniTest-child-neovim|.
 ---
----@return `child` Object of |MiniTest-child-neovim|.
+---@return MiniTest.child Object of |MiniTest-child-neovim|.
 ---
----@usage >
+---@usage >lua
 ---   -- Initiate
 ---   local child = MiniTest.new_child_neovim()
 ---   child.start()
@@ -1078,6 +1061,7 @@ end
 ---
 ---   -- Always stop process after it is not needed
 ---   child.stop()
+--- <
 MiniTest.new_child_neovim = function()
   local child = {}
   local start_args, start_opts
@@ -1094,8 +1078,7 @@ MiniTest.new_child_neovim = function()
     H.error_with_emphasis(msg)
   end
 
-  -- Start fully functional Neovim instance (not '--embed' or '--headless',
-  -- because they don't provide full functionality)
+  -- Start headless Neovim instance
   child.start = function(args, opts)
     if child.is_running() then
       H.message('Child process is already running. Use `child.restart()`.')
@@ -1108,17 +1091,29 @@ MiniTest.new_child_neovim = function()
     -- Make unique name for `--listen` pipe
     local job = { address = vim.fn.tempname() }
 
-    local full_args = { opts.nvim_executable, '--clean', '-n', '--listen', job.address }
+    if vim.fn.has('win32') == 1 then
+      -- Use special local pipe prefix on Windows with (hopefully) unique name
+      -- Source: https://learn.microsoft.com/en-us/windows/win32/ipc/pipe-names
+      job.address = [[\\.\pipe\mininvim]] .. vim.fn.fnamemodify(job.address, ':t')
+    end
+
+    --stylua: ignore
+    local full_args = {
+      opts.nvim_executable, '--clean', '-n', '--listen', job.address,
+      -- Setting 'lines' and 'columns' makes headless process more like
+      -- interactive for closer to reality testing
+      '--headless', '--cmd', 'set lines=24 columns=80'
+    }
     vim.list_extend(full_args, args)
 
-    -- Using 'libuv' for creating a job is crucial for getting this to work in
-    -- Github Actions. Other approaches:
+    -- Using 'jobstart' for creating a job is crucial for getting this to work
+    -- in Github Actions. Other approaches:
     -- - Using `{ pty = true }` seems crucial to make this work on GitHub CI.
     -- - Using `vim.loop.spawn()` is doable, but has issues on Neovim>=0.9:
     --     - https://github.com/neovim/neovim/issues/21630
     --     - https://github.com/neovim/neovim/issues/21886
     --     - https://github.com/neovim/neovim/issues/22018
-    job.id = vim.fn.jobstart(full_args, { pty = true })
+    job.id = vim.fn.jobstart(full_args)
 
     local step = 10
     local connected, i, max_tries = nil, 0, math.floor(opts.connection_timeout / step)
@@ -1237,7 +1232,7 @@ MiniTest.new_child_neovim = function()
     'diagnostic', 'fn', 'highlight', 'json', 'loop', 'lsp', 'mpack', 'spell', 'treesitter', 'ui',
     -- Variables
     'g', 'b', 'w', 't', 'v', 'env',
-    -- Options (no 'opt' becuase not really usefult due to use of metatables)
+    -- Options (no 'opt' because not really useful due to use of metatables)
     'o', 'go', 'bo', 'wo',
   }
   --stylua: ignore end
@@ -1251,16 +1246,18 @@ MiniTest.new_child_neovim = function()
 
     local has_wait = type(wait) == 'number'
     local keys = has_wait and { ... } or { wait, ... }
-    keys = vim.tbl_flatten(keys)
+    keys = H.tbl_flatten(keys)
 
+    -- From `nvim_input` docs: "On execution error: does not fail, but
+    -- updates v:errmsg.". So capture it manually. NOTE: Have it global to
+    -- allow sending keys which will block in the middle (like `[[<C-\>]]` and
+    -- `<C-n>`). Otherwise, later check will assume that there was an error.
+    local cur_errmsg
     for _, k in ipairs(keys) do
       if type(k) ~= 'string' then
         error('In `type_keys()` each argument should be either string or array of strings.')
       end
 
-      -- From `nvim_input` docs: "On execution error: does not fail, but
-      -- updates v:errmsg.". So capture it manually.
-      local cur_errmsg
       -- But do that only if Neovim is not "blocked". Otherwise, usage of
       -- `child.v` will block execution.
       if not child.is_blocked() then
@@ -1276,7 +1273,7 @@ MiniTest.new_child_neovim = function()
         if child.v.errmsg ~= '' then
           error(child.v.errmsg, 2)
         else
-          child.v.errmsg = cur_errmsg
+          child.v.errmsg = cur_errmsg or ''
         end
       end
 
@@ -1314,6 +1311,15 @@ MiniTest.new_child_neovim = function()
     return child.api.nvim_exec_lua('return ' .. str, args or {})
   end
 
+  child.lua_func = function(f, ...)
+    ensure_running()
+    prevent_hanging('lua_func')
+    return child.api.nvim_exec_lua(
+      'local f = ...; return assert(loadstring(f))(select(2, ...))',
+      { string.dump(f), ... }
+    )
+  end
+
   child.is_blocked = function()
     ensure_running()
     return child.api.nvim_get_mode()['blocking']
@@ -1327,28 +1333,13 @@ MiniTest.new_child_neovim = function()
     child.type_keys([[<C-\>]], '<C-n>')
   end
 
-  child.get_screenshot = function()
+  child.get_screenshot = function(opts)
     ensure_running()
     prevent_hanging('get_screenshot')
 
-    -- Add note if there is a visible floating window but `screen*()` functions
-    -- don't support them (Neovim<0.8).
-    -- See https://github.com/neovim/neovim/issues/19013
-    if child.fn.has('nvim-0.8') == 0 then
-      local has_visible_floats = child.lua([[
-        for _, win_id in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
-          if vim.api.nvim_win_get_config(win_id).relative ~= '' then return true end
-        end
-        return false
-      ]])
+    opts = vim.tbl_deep_extend('force', { redraw = true }, opts or {})
 
-      if has_visible_floats then
-        MiniTest.add_note(
-          '`child.get_screenshot()` will not show visible floating windows in this version. Use Neovim>=0.8.'
-        )
-        return
-      end
-    end
+    if opts.redraw then child.cmd('redraw') end
 
     local res = child.lua([[
       local text, attr = {}, {}
@@ -1408,7 +1399,7 @@ end
 ---   then return value). See for `*_notify` variant to use |vim.rpcnotify()|.
 --- - All fields and methods should be called with `.`, not `:`.
 ---
----@class child
+---@class MiniTest.child
 ---
 ---@field start function Start child process. See |MiniTest-child-neovim.start()|.
 ---@field stop function Stop current child process.
@@ -1425,8 +1416,12 @@ end
 ---   capture output. A wrapper for |nvim_exec()| with capturing output.
 ---
 ---@field lua function Execute Lua code. A wrapper for |nvim_exec_lua()|.
+---@field lua_notify function Execute Lua code without waiting for output.
 ---@field lua_get function Execute Lua code and return result. A wrapper
 ---   for |nvim_exec_lua()| but prepends string code with `return`.
+---@field lua_func function Execute Lua function and return it's result.
+---   Function will be called with all extra parameters (second one and later).
+---   Note: usage of upvalues (data from outside function scope) is not allowed.
 ---
 ---@field is_blocked function Check whether child process is blocked.
 ---@field is_running function Check whether child process is currently running.
@@ -1434,6 +1429,7 @@ end
 ---@field ensure_normal_mode function Ensure normal mode.
 ---@field get_screenshot function Returns table with two "2d arrays" of single
 ---   characters representing what is displayed on screen and how it looks.
+---   Has `opts` table argument for optional configuratnion.
 ---
 ---@field job table|nil Information about current job. If `nil`, child is not running.
 ---
@@ -1466,18 +1462,20 @@ end
 ---@field wo table Redirection table for |vim.wo|.
 ---@tag MiniTest-child-neovim
 
---- child.start(args, opts)~
+--- child.start(args, opts) ~
 ---
 --- Start child process and connect to it. Won't work if child is already running.
 ---
----@param args table Array with arguments for executable. Will be prepended
----   with `{'--clean', '-n', '--listen', <some address>}` (see |startup-options|).
+---@param args table Array with arguments for executable. Will be prepended with
+---   the following default arguments (see |startup-options|): >lua
+---   { '--clean', '-n', '--listen', <some address>,
+---     '--headless', '--cmd', 'set lines=24 columns=80' }
 ---@param opts table|nil Options:
 ---   - <nvim_executable> - name of Neovim executable. Default: |v:progpath|.
 ---   - <connection_timeout> - stop trying to connect after this amount of
 ---     milliseconds. Default: 5000.
 ---
----@usage >
+---@usage >lua
 ---   child = MiniTest.new_child_neovim()
 ---
 ---   -- Start default clean Neovim instance
@@ -1485,9 +1483,10 @@ end
 ---
 ---   -- Start with custom 'init.lua' file
 ---   child.start({ '-u', 'scripts/minimal_init.lua' })
+--- <
 ---@tag MiniTest-child-neovim.start()
 
---- child.type_keys(wait, ...)~
+--- child.type_keys(wait, ...) ~
 ---
 --- Basically a wrapper for |nvim_input()| applied inside child process.
 --- Differences:
@@ -1501,7 +1500,7 @@ end
 ---@param ... string|table<number,string> Separate entries for |nvim_input()|,
 ---   after which `wait` will be applied. Can be either string or array of strings.
 ---
----@usage >
+---@usage >lua
 ---   -- All of these type keys 'c', 'a', 'w'
 ---   child.type_keys('caw')
 ---   child.type_keys('c', 'a', 'w')
@@ -1512,25 +1511,24 @@ end
 ---
 ---   -- Special keys can also be used
 ---   child.type_keys('i', 'Hello world', '<Esc>')
+--- <
 ---@tag MiniTest-child-neovim.type_keys()
 
---- child.get_screenshot()~
+--- child.get_screenshot() ~
 ---
 --- Compute what is displayed on (default TUI) screen and how it is displayed.
 --- This basically calls |screenstring()| and |screenattr()| for every visible
 --- cell (row from 1 to 'lines', column from 1 to 'columns').
 ---
 --- Notes:
---- - Due to implementation details of `screenstring()` and `screenattr()` in
----   Neovim<=0.7, this function won't recognize floating windows displayed on
----   screen. It will throw an error if there is a visible floating window. Use
----   Neovim>=0.8 (current nightly) to properly handle floating windows. Details:
----     - https://github.com/neovim/neovim/issues/19013
----     - https://github.com/neovim/neovim/pull/19020
 --- - To make output more portable and visually useful, outputs of
 ---   `screenattr()` are coded with single character symbols. Those are taken from
 ---   94 characters (ASCII codes between 33 and 126), so there will be duplicates
 ---   in case of more than 94 different ways text is displayed on screen.
+---
+---@param opts table|nil Options. Possieble fields:
+---   - <redraw> `(boolean)` - whether to call |:redraw| prior to computing
+---     screenshot. Default: `true`.
 ---
 ---@return table|nil Screenshot table with the following fields:
 ---   - <text> - "2d array" (row-column) of single characters displayed at
@@ -1546,7 +1544,7 @@ end
 ---   above content and line numbers for each line.
 ---   Returns `nil` if couldn't get a reasonable screenshot.
 ---
----@usage >
+---@usage >lua
 ---   local screenshot = child.get_screenshot()
 ---
 ---   -- Show character displayed row=3 and column=4
@@ -1554,11 +1552,12 @@ end
 ---
 ---   -- Convert to string
 ---   tostring(screenshot)
+--- <
 ---@tag MiniTest-child-neovim.get_screenshot()
 
 -- Helper data ================================================================
 -- Module default config
-H.default_config = MiniTest.config
+H.default_config = vim.deepcopy(MiniTest.config)
 
 -- Whether instance is running in headless mode
 H.is_headless = #vim.api.nvim_list_uis() == 0
@@ -1610,7 +1609,7 @@ H.setup_config = function(config)
   -- General idea: if some table elements are not present in user-supplied
   -- `config`, take them from default config
   vim.validate({ config = { config, 'table', true } })
-  config = vim.tbl_deep_extend('force', H.default_config, config or {})
+  config = vim.tbl_deep_extend('force', vim.deepcopy(H.default_config), config or {})
 
   vim.validate({
     collect = { config.collect, 'table' },
@@ -1633,10 +1632,30 @@ end
 
 H.apply_config = function(config) MiniTest.config = config end
 
+H.create_autocommands = function()
+  local augroup = vim.api.nvim_create_augroup('MiniTest', {})
+  vim.api.nvim_create_autocmd(
+    'ColorScheme',
+    { group = augroup, callback = H.create_default_hl, desc = 'Ensure proper colors' }
+  )
+end
+
+H.create_default_hl = function()
+  local set_default_hl = function(name, data)
+    data.default = true
+    vim.api.nvim_set_hl(0, name, data)
+  end
+
+  set_default_hl('MiniTestFail', { fg = vim.g.terminal_color_1 or '#FF0000', bold = true })
+  set_default_hl('MiniTestPass', { fg = vim.g.terminal_color_2 or '#00FF00', bold = true })
+  set_default_hl('MiniTestEmphasis', { bold = true })
+end
+
 H.is_disabled = function() return vim.g.minitest_disable == true or vim.b.minitest_disable == true end
 
-H.get_config =
-  function(config) return vim.tbl_deep_extend('force', MiniTest.config, vim.b.minitest_config or {}, config or {}) end
+H.get_config = function(config)
+  return vim.tbl_deep_extend('force', MiniTest.config, vim.b.minitest_config or {}, config or {})
+end
 
 -- Work with collection -------------------------------------------------------
 H.busted_emulate = function(set)
@@ -1722,11 +1741,16 @@ H.make_step_scheduler = function(case, case_num, opts)
     end
   end
 
-  return function(f, state)
+  return function(f, f_type, state)
     f = f or function() end
 
     vim.schedule(function()
       if H.cache.should_stop_execution then return end
+
+      local n_fails = case.exec == nil and 0 or #case.exec.fails
+      if f_type == 'case' and n_fails > 0 then
+        f = function() table.insert(case.exec.notes, 'Skip case due to error(s) in hooks.') end
+      end
 
       H.cache.n_screenshots = 0
       case.exec = case.exec or { fails = {}, notes = {} }
@@ -1782,7 +1806,7 @@ H.set_to_testcases = function(set, template, hooks_once)
 
       local cur_template = H.extend_template(template, {
         args = args,
-        desc = key,
+        desc = type(key) == 'string' and key:gsub('\n', '\\n') or key,
         hooks = { pre = hooks.pre_case, post = hooks.post_case },
         data = data,
       })
@@ -1993,37 +2017,31 @@ H.buffer_reporter.set_options = function(buf_id, win_id)
 
   vim.cmd('silent! set filetype=minitest')
 
-  -- Set options for "temporary" buffer
   --stylua: ignore start
-  local buf_options = { buflisted = false, buftype = 'nofile', modeline = false, swapfile = false }
+  -- Set options for "temporary" buffer
+  local buf_options = {
+    bufhidden = 'wipe', buflisted = false, buftype = 'nofile', modeline = false, swapfile = false,
+  }
   for name, value in pairs(buf_options) do
-    vim.api.nvim_buf_set_option(buf_id, name, value)
+    vim.bo[buf_id][name] = value
   end
-  -- Doesn't work inside `nvim_buf_set_option()`
-  vim.cmd('setlocal bufhidden=wipe')
 
+  -- Set options for "clean" window
   local win_options = {
     colorcolumn = '', fillchars = 'eob: ',    foldcolumn = '0', foldlevel = 999,
     number = false,   relativenumber = false, spell = false,    signcolumn = 'no',
     wrap = true,
   }
   for name, value in pairs(win_options) do
-    vim.api.nvim_win_set_option(win_id, name, value)
+    vim.wo[win_id][name] = value
   end
   --stylua: ignore end
 end
 
 H.buffer_reporter.set_mappings = function(buf_id)
-  local map_buf = function(key, rhs, opts)
-    -- Use mapping description only in Neovim>=0.7
-    if vim.fn.has('nvim-0.7') == 0 then opts.desc = nil end
-
-    vim.api.nvim_buf_set_keymap(buf_id, 'n', key, rhs, opts)
-  end
-
   local rhs = [[<Cmd>lua if MiniTest.is_executing() then MiniTest.stop() else vim.cmd('close') end<CR>]]
-  map_buf('<Esc>', rhs, { noremap = true, desc = 'Stop execution or close window' })
-  map_buf('q', rhs, { noremap = true, desc = 'Stop execution or close window' })
+  vim.keymap.set('n', '<Esc>', rhs, { buffer = buf_id, desc = 'Stop execution or close window' })
+  vim.keymap.set('n', 'q', rhs, { buffer = buf_id, desc = 'Stop execution or close window' })
 end
 
 H.buffer_reporter.set_lines = function(buf_id, lines, start, finish)
@@ -2037,7 +2055,7 @@ H.buffer_reporter.set_lines = function(buf_id, lines, start, finish)
   local new_lines, hl_ranges = {}, {}
   for i, l in ipairs(lines) do
     local n_removed = 0
-    local new_l = l:gsub('()(\27%[.-m)(.-)\27%[0m', function(...)
+    local new_l = l:gsub('\n', '\\n'):gsub('()(\27%[.-m)(.-)\27%[0m', function(...)
       local dots = { ... }
       local left = dots[1] - n_removed
       table.insert(
@@ -2192,7 +2210,7 @@ H.screenshot_encode_attr = function(attr)
   return res
 end
 
-H.screenshot_compare = function(screen_ref, screen_obs)
+H.screenshot_compare = function(screen_ref, screen_obs, opts)
   local compare = function(x, y, desc)
     if x ~= y then
       return false, ('Different %s. Reference: %s. Observed: %s.'):format(desc, vim.inspect(x), vim.inspect(y))
@@ -2207,7 +2225,12 @@ H.screenshot_compare = function(screen_ref, screen_obs)
   ok, cause = compare(#screen_ref.attr, #screen_obs.attr, 'number of `attr` lines')
   if not ok then return ok, cause end
 
+  local lines_to_check, ignore_lines = {}, opts.ignore_lines or {}
   for i = 1, #screen_ref.text do
+    if not vim.tbl_contains(ignore_lines, i) then table.insert(lines_to_check, i) end
+  end
+
+  for _, i in ipairs(lines_to_check) do
     ok, cause = compare(#screen_ref.text[i], #screen_obs.text[i], 'number of columns in `text` line ' .. i)
     if not ok then return ok, cause end
     ok, cause = compare(#screen_ref.attr[i], #screen_obs.attr[i], 'number of columns in `attr` line ' .. i)
@@ -2288,5 +2311,9 @@ H.string_to_chars = function(s)
   end
   return res
 end
+
+-- TODO: Remove after compatibility with Neovim=0.9 is dropped
+H.tbl_flatten = vim.fn.has('nvim-0.10') == 1 and function(x) return vim.iter(x):flatten(math.huge):totable() end
+  or vim.tbl_flatten
 
 return MiniTest

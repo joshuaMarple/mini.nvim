@@ -35,7 +35,7 @@
 ---
 --- - Configurable severity level of all actions.
 ---
---- # Setup~
+--- # Setup ~
 ---
 --- This module needs a setup with `require('mini.sessions').setup({})`
 --- (replace `{}` with your `config` table). It will create global Lua table
@@ -47,7 +47,7 @@
 --- This module doesn't benefit from buffer local configuration, so using
 --- `vim.b.minisessions_config` will have no effect here.
 ---
---- # Disabling~
+--- # Disabling ~
 ---
 --- To disable core functionality, set `vim.g.minisessions_disable` (globally) or
 --- `vim.b.minisessions_disable` (for a buffer) to `true`. Considering high
@@ -57,23 +57,18 @@
 
 -- Module definition ==========================================================
 local MiniSessions = {}
-local H = { path_sep = package.config:sub(1, 1) }
+local H = {}
 
 --- Module setup
 ---
 ---@param config table|nil Module config table. See |MiniSessions.config|.
 ---
----@usage `require('mini.sessions').setup({})` (replace `{}` with your `config` table)
+---@usage >lua
+---   require('mini.sessions').setup() -- use default config
+---   -- OR
+---   require('mini.sessions').setup({}) -- replace {} with your config table
+--- <
 MiniSessions.setup = function(config)
-  -- TODO: Remove after Neovim<=0.6 support is dropped
-  if vim.fn.has('nvim-0.7') == 0 then
-    vim.notify(
-      '(mini.sessions) Neovim<0.7 is soft deprecated (module works but not supported).'
-        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
-        .. ' Please update your Neovim version.'
-    )
-  end
-
   -- Export module
   _G.MiniSessions = MiniSessions
 
@@ -83,23 +78,8 @@ MiniSessions.setup = function(config)
   -- Apply config
   H.apply_config(config)
 
-  -- Module behavior
-  vim.api.nvim_exec(
-    [[augroup MiniSessions
-        au!
-        au VimEnter * ++nested ++once lua MiniSessions.on_vimenter()
-      augroup END]],
-    false
-  )
-
-  if config.autowrite then
-    vim.api.nvim_exec(
-      [[augroup MiniSessions
-          au VimLeavePre * lua if vim.v.this_session ~= '' then MiniSessions.write(nil, {force = true}) end
-        augroup END]],
-      false
-    )
-  end
+  -- Define behavior
+  H.create_autocommands(config)
 end
 
 --- Module config
@@ -115,7 +95,7 @@ MiniSessions.config = {
 
   -- Directory where global sessions are stored (use `''` to disable)
   --minidoc_replace_start directory = --<"session" subdir of user data directory from |stdpath()|>,
-  directory = ('%s%ssession'):format(vim.fn.stdpath('data'), H.path_sep),
+  directory = vim.fn.stdpath('data') .. '/session',
   --minidoc_replace_end
 
   -- File for local session (use `''` to disable)
@@ -152,6 +132,7 @@ MiniSessions.detected = {}
 --- Read detected session
 ---
 --- What it does:
+--- - If there is an active session, write it with |MiniSessions.write()|.
 --- - Delete all current buffers with |bwipeout|. This is needed to correctly
 ---   restore buffers from target session. If `force` is not `true`, checks
 ---   beforehand for unsaved listed buffers and stops if there is any.
@@ -171,12 +152,12 @@ MiniSessions.detected = {}
 ---     `MiniSessions.config.hooks.post.read`).
 MiniSessions.read = function(session_name, opts)
   if H.is_disabled() then return end
-  if vim.tbl_count(MiniSessions.detected) == 0 then
-    H.error('There is no detected sessions. Change configuration and rerun `MiniSessions.setup()`.')
-  end
 
   -- Make sessions up to date
   H.detect_sessions()
+  if vim.tbl_count(MiniSessions.detected) == 0 then
+    return H.message('There is no detected sessions. Change configuration and rerun `MiniSessions.setup()`.')
+  end
 
   -- Get session data
   if session_name == nil then
@@ -203,15 +184,18 @@ MiniSessions.read = function(session_name, opts)
     end
   end
 
+  -- Write current session to allow proper switching between sessions
+  if H.get_this_session() ~= '' then MiniSessions.write(nil, { force = true, verbose = false }) end
+
   -- Execute 'pre' hook
   H.possibly_execute(opts.hooks.pre, data)
 
   -- Wipeout all buffers
-  vim.cmd('%bwipeout!')
+  vim.cmd('silent! %bwipeout!')
 
   -- Read session file
   local session_path = data.path
-  vim.cmd(('source %s'):format(vim.fn.fnameescape(session_path)))
+  vim.cmd(('silent! source %s'):format(vim.fn.fnameescape(session_path)))
   vim.v.this_session = session_path
 
   -- Possibly notify
@@ -264,12 +248,15 @@ MiniSessions.write = function(session_name, opts)
   H.possibly_execute(opts.hooks.pre, data)
 
   -- Make session file
-  local cmd = ('mksession%s'):format(opts.force and '!' or '')
-  vim.cmd(('%s %s'):format(cmd, vim.fn.fnameescape(session_path)))
+  local command = string.format('mksession%s %s', opts.force and '!' or '', vim.fn.fnameescape(session_path))
+  vim.cmd(command)
   data.modify_time = vim.fn.getftime(session_path)
 
   -- Update detected sessions
   MiniSessions.detected[data.name] = data
+
+  -- Update current session
+  vim.v.this_session = session_path
 
   -- Possibly notify
   if opts.verbose then H.message(('Written session %s'):format(session_path)) end
@@ -315,7 +302,7 @@ MiniSessions.delete = function(session_name, opts)
   if not H.validate_detected(session_name) then return end
   session_path = MiniSessions.detected[session_name].path
 
-  local is_current_session = session_path == vim.v.this_session
+  local is_current_session = session_path == H.get_this_session()
   if not opts.force and is_current_session then
     H.error([[Can't delete current session when `opts.force` is not `true`.]])
   end
@@ -401,14 +388,9 @@ MiniSessions.get_latest = function()
   return latest_name
 end
 
---- Act on |VimEnter|
-MiniSessions.on_vimenter = function()
-  if MiniSessions.config.autoread and not H.is_something_shown() then MiniSessions.read() end
-end
-
 -- Helper data ================================================================
 -- Module default config
-H.default_config = MiniSessions.config
+H.default_config = vim.deepcopy(MiniSessions.config)
 
 -- Helper functionality =======================================================
 -- Settings -------------------------------------------------------------------
@@ -416,7 +398,7 @@ H.setup_config = function(config)
   -- General idea: if some table elements are not present in user-supplied
   -- `config`, take them from default config
   vim.validate({ config = { config, 'table', true } })
-  config = vim.tbl_deep_extend('force', H.default_config, config or {})
+  config = vim.tbl_deep_extend('force', vim.deepcopy(H.default_config), config or {})
 
   -- Validate per nesting level to produce correct error message
   vim.validate({
@@ -459,6 +441,28 @@ H.apply_config = function(config)
   MiniSessions.config = config
 
   H.detect_sessions(config)
+end
+
+H.create_autocommands = function(config)
+  local augroup = vim.api.nvim_create_augroup('MiniSessions', {})
+
+  if config.autoread then
+    local autoread = function()
+      if not H.is_something_shown() then MiniSessions.read() end
+    end
+    local opts = { group = augroup, nested = true, once = true, callback = autoread, desc = 'Autoread latest session' }
+    vim.api.nvim_create_autocmd('VimEnter', opts)
+  end
+
+  if config.autowrite then
+    local autowrite = function()
+      if H.get_this_session() ~= '' then MiniSessions.write(nil, { force = true }) end
+    end
+    vim.api.nvim_create_autocmd(
+      'VimLeavePre',
+      { group = augroup, callback = autowrite, desc = 'Autowrite current session' }
+    )
+  end
 end
 
 H.is_disabled = function() return vim.g.minisessions_disable == true or vim.b.minisessions_disable == true end
@@ -505,14 +509,11 @@ H.detect_sessions_global = function(global_dir)
 end
 
 H.detect_sessions_local = function(local_file)
-  local f = H.joinpath(vim.fn.getcwd(), local_file)
-
+  local f = vim.fn.getcwd() .. '/' .. local_file
   if not H.is_readable_file(f) then return {} end
 
-  local res = {}
   local s = H.new_session(f, 'local')
-  res[s.name] = s
-  return res
+  return { [s.name] = s }
 end
 
 H.new_session = function(session_path, session_type)
@@ -541,25 +542,25 @@ end
 
 H.get_unsaved_listed_buffers = function()
   return vim.tbl_filter(
-    function(buf_id) return vim.api.nvim_buf_get_option(buf_id, 'modified') and vim.api.nvim_buf_get_option(buf_id, 'buflisted') end,
+    function(buf_id) return vim.bo[buf_id].modified and vim.bo[buf_id].buflisted end,
     vim.api.nvim_list_bufs()
   )
 end
 
-H.get_current_session_name = function() return vim.fn.fnamemodify(vim.v.this_session, ':t') end
+H.get_this_session = function() return H.fs_normalize(vim.v.this_session) end
 
 H.name_to_path = function(session_name)
   if session_name == nil then
-    if vim.v.this_session == '' then H.error('There is no active session. Supply non-nil session name.') end
-    return vim.v.this_session
+    local this_session = H.get_this_session()
+    if this_session == '' then H.error('There is no active session. Supply non-nil session name.') end
+    return this_session
   end
 
   session_name = tostring(session_name)
   if session_name == '' then H.error('Supply non-empty session name.') end
 
   local session_dir = (session_name == MiniSessions.config.file) and vim.fn.getcwd() or MiniSessions.config.directory
-  local path = H.joinpath(session_dir, session_name)
-  return H.full_path(path)
+  return H.full_path(session_dir .. '/' .. session_name)
 end
 
 -- Utilities ------------------------------------------------------------------
@@ -598,20 +599,18 @@ end
 
 H.is_readable_file = function(path) return vim.fn.isdirectory(path) ~= 1 and vim.fn.getfperm(path):sub(1, 1) == 'r' end
 
-H.joinpath = function(directory, filename) return ('%s%s%s'):format(directory, H.path_sep, tostring(filename)) end
+H.fs_normalize = vim.fs.normalize
+if vim.fn.has('nvim-0.9') == 0 then
+  H.fs_normalize = function(...) return vim.fs.normalize(...):gsub('(.)/+$', '%1') end
+end
 
-H.full_path = function(path) return vim.fn.resolve(vim.fn.fnamemodify(path, ':p')) end
+H.full_path = function(path) return H.fs_normalize(vim.fn.resolve(vim.fn.fnamemodify(path, ':p'))) end
 
 H.is_something_shown = function()
   -- Don't autoread session if Neovim is opened to show something. That is
   -- when at least one of the following is true:
-  -- - Current buffer has any lines (something opened explicitly).
-  -- NOTE: Usage of `line2byte(line('$') + 1) > 0` seemed to be fine, but it
-  -- doesn't work if some automated changed was made to buffer while leaving it
-  -- empty (returns 2 instead of -1). This was also the reason of not being
-  -- able to test with child Neovim process from 'tests/helpers'.
-  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, true)
-  if #lines > 1 or (#lines == 1 and lines[1]:len() > 0) then return true end
+  -- - There are files in arguments (like `nvim foo.txt` with new file).
+  if vim.fn.argc() > 0 then return true end
 
   -- - Several buffers are listed (like session with placeholder buffers). That
   --   means unlisted buffers (like from `nvim-tree`) don't affect decision.
@@ -621,8 +620,18 @@ H.is_something_shown = function()
   )
   if #listed_buffers > 1 then return true end
 
-  -- - There are files in arguments (like `nvim foo.txt` with new file).
-  if vim.fn.argc() > 0 then return true end
+  -- - Current buffer is meant to show something else
+  if vim.bo.filetype ~= '' then return true end
+
+  -- - Current buffer has any lines (something opened explicitly).
+  -- NOTE: Usage of `line2byte(line('$') + 1) < 0` seemed to be fine, but it
+  -- doesn't work if some automated changed was made to buffer while leaving it
+  -- empty (returns 2 instead of -1). This was also the reason of not being
+  -- able to test with child Neovim process from 'tests/helpers'.
+  local n_lines = vim.api.nvim_buf_line_count(0)
+  if n_lines > 1 then return true end
+  local first_line = vim.api.nvim_buf_get_lines(0, 0, 1, true)[1]
+  if string.len(first_line) > 0 then return true end
 
   return false
 end

@@ -13,7 +13,7 @@ Extra features:
   colors.
 
 Supported highlight groups:
-- Builtin-in Neovim LSP and diagnostic.
+- Built-in Neovim LSP and diagnostic.
 
 - Plugins (either with explicit definition or by verification that default
   highlighting works appropriately):
@@ -30,13 +30,14 @@ Supported highlight groups:
     - 'ggandor/lightspeed.nvim'
     - 'glepnir/dashboard-nvim'
     - 'glepnir/lspsaga.nvim'
-    - 'HiPhish/nvim-ts-rainbow2'
+    - 'HiPhish/rainbow-delimiters.nvim'
     - 'hrsh7th/nvim-cmp'
     - 'justinmk/vim-sneak'
     - 'kevinhwang91/nvim-ufo'
     - 'lewis6991/gitsigns.nvim'
     - 'lukas-reineke/indent-blankline.nvim'
     - 'neoclide/coc.nvim'
+    - 'NeogitOrg/neogit'
     - 'nvim-lualine/lualine.nvim'
     - 'nvim-neo-tree/neo-tree.nvim'
     - 'nvim-telescope/telescope.nvim'
@@ -46,12 +47,10 @@ Supported highlight groups:
     - 'rcarriga/nvim-notify'
     - 'rlane/pounce.nvim'
     - 'romgrk/barbar.nvim'
-    - 'simrat39/symbols-outline.nvim'
     - 'stevearc/aerial.nvim'
-    - 'TimUntersberger/neogit'
     - 'williamboman/mason.nvim'
 
-# Setup~
+# Setup ~
 
 This module needs a setup with `require('mini.base16').setup({})` (replace
 `{}` with your `config` table). It will create global Lua table
@@ -63,8 +62,8 @@ See |MiniBase16.config| for `config` structure and default values.
 This module doesn't have runtime options, so using `vim.b.minibase16_config`
 will have no effect here.
 
-Example:
->
+Example: >lua
+
   require('mini.base16').setup({
     palette = {
       base00 = '#112641',
@@ -91,7 +90,7 @@ Example:
     },
   })
 <
-# Notes~
+# Notes ~
 
 1. This is used to create plugin's colorschemes (see |mini.nvim-color-schemes|).
 2. Using `setup()` doesn't actually create a |colorscheme|. It basically
@@ -103,34 +102,40 @@ Example:
       palette and only after that set |g:colors_name| to "myscheme".
 
 ------------------------------------------------------------------------------
-                                                            *mini-color-schemes*
-# Plugin colorschemes~
+                                                     *mini-base16-color-schemes*
+                                                                    *minischeme*
+                                                                      *minicyan*
+Base16 colorschemes ~
 
-This plugin comes with several color schemes. All of them are a
-|MiniBase16| theme created with faster version of the following Lua code:
->
+This module comes with several pre-built color schemes. All of them are a
+|MiniBase16| theme created with faster version of the following Lua code: >lua
+
   require('mini.base16').setup({ palette = palette, use_cterm = true })
 <
 Activate them as regular |colorscheme| (for example, `:colorscheme minischeme`).
 
-## minischeme~
+## minischeme ~
 
 Blue and yellow main colors with high contrast and saturation palette.
-Palettes are:
-- For dark 'background':
-  `MiniBase16.mini_palette('#112641', '#e2e98f', 75)`
-- For light 'background':
-  `MiniBase16.mini_palette('#e2e5ca', '#002a83', 75)`
+Palettes are: >lua
 
-## minicyan~
+  -- For dark 'background':
+  MiniBase16.mini_palette('#112641', '#e2e98f', 75)
+
+  -- For light 'background':
+  MiniBase16.mini_palette('#e2e5ca', '#002a83', 75)
+<
+## minicyan ~
 
 Cyan and grey main colors with moderate contrast and saturation palette.
-Palettes are:
-- For dark 'background':
-  `MiniBase16.mini_palette('#0A2A2A', '#D0D0D0', 50)`
-- For light 'background':
-  `MiniBase16.mini_palette('#C0D2D2', '#262626', 80)`
+Palettes are: >lua
 
+  -- For dark 'background':
+  MiniBase16.mini_palette('#0A2A2A', '#D0D0D0', 50)
+
+  -- For light 'background':
+  MiniBase16.mini_palette('#C0D2D2', '#262626', 80)
+<
 ------------------------------------------------------------------------------
                                                             *MiniBase16.setup()*
                           `MiniBase16.setup`({config})
@@ -149,20 +154,21 @@ By default only 'gui highlighting' (see |highlight-gui| and
 - Table with similar structure to `palette` but having terminal colors
   (integers from 0 to 255) instead of hex strings.
 
-Parameters~
+Parameters ~
 {config} `(table)` Module config table. See |MiniBase16.config|.
 
-Usage~
-`require('mini.base16').setup({})` (replace `{}` with your `config`
-  table; `config.palette` should be a table with colors)
-
+Usage ~
+>lua
+  require('mini.base16').setup({}) -- replace {} with your config table
+                                   -- needs `palette` field present
+<
 ------------------------------------------------------------------------------
                                                              *MiniBase16.config*
                               `MiniBase16.config`
 Module config
 
 Default values:
->
+>lua
   MiniBase16.config = {
     -- Table with names from `base00` to `base0F` and values being strings of
     -- HEX colors with format "#RRGGBB". NOTE: this should be explicitly
@@ -189,8 +195,8 @@ It is a table with boolean (`true`/`false`) values which are applied as follows:
 - If plugin name (as listed in |mini.base16|) has entry, it is used.
 - Otherwise `config.plugins.default` is used.
 
-Example which will load only "mini.nvim" integration:
->
+Example which will load only "mini.nvim" integration: >lua
+
   require('mini.base16').setup({
     palette = require('mini.base16').mini_palette('#112641', '#e2e98f', 75),
     plugins = {
@@ -198,7 +204,7 @@ Example which will load only "mini.nvim" integration:
       ['echasnovski/mini.nvim'] = true,
     }
   })
-
+<
 ------------------------------------------------------------------------------
                                                      *MiniBase16.mini_palette()*
      `MiniBase16.mini_palette`({background}, {foreground}, {accent_chroma})
@@ -208,14 +214,14 @@ Create base16 palette based on the HEX (string '#RRGGBB') colors of main
 background and foreground with optional setting of accent chroma (see
 details).
 
-# Algorithm design~
+# Algorithm design ~
 
 - Main operating color space is
   [CIELCh(uv)](https://en.wikipedia.org/wiki/CIELUV#Cylindrical_representation_(CIELCh))
   which is a cylindrical representation of a perceptually uniform CIELUV
   color space. It defines color by three values: lightness L (values from 0
   to 100), chroma (positive values), and hue (circular values from 0 to 360
-  degress). Useful converting tool: https://www.easyrgb.com/en/convert.php
+  degrees). Useful converting tool: https://www.easyrgb.com/en/convert.php
 - There are four important lightness values: background, foreground, focus
   (around the middle of background and foreground, leaning towards
   foreground), and edge (extreme lightness closest to foreground).
@@ -244,19 +250,20 @@ details).
   `base0D` and `base0F` have same hues because they usually represent
   functions and delimiter (brackets included).
 
-Parameters~
+Parameters ~
 {background} `(string)` Background HEX color (formatted as `#RRGGBB`).
 {foreground} `(string)` Foreground HEX color (formatted as `#RRGGBB`).
 {accent_chroma} `(number)` Optional positive number (usually between 0
   and 100). Default: chroma of foreground color.
 
-Return~
+Return ~
 `(table)` Table with base16 palette.
 
-Usage~
-`local palette = require('mini.base16').mini_palette('#112641', '#e2e98f', 75)`
-`require('mini.base16').setup({palette = palette})`
-
+Usage ~
+>lua
+  local p = require('mini.base16').mini_palette('#112641', '#e2e98f', 75)
+  require('mini.base16').setup({ palette = p })
+<
 ------------------------------------------------------------------------------
                                      *MiniBase16.rgb_palette_to_cterm_palette()*
               `MiniBase16.rgb_palette_to_cterm_palette`({palette})
@@ -264,11 +271,11 @@ Converts palette with RGB colors to terminal colors
 
 Useful for caching `use_cterm` variable to increase speed.
 
-Parameters~
+Parameters ~
 {palette} `(table)` Table with base16 palette (same as in
   `MiniBase16.config.palette`).
 
-Return~
+Return ~
 `(table)` Table with base16 palette using |highlight-cterm|.
 
 

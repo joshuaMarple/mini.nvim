@@ -23,7 +23,7 @@
 --- 'smartcase' is also set, f, F, t, T will only match lowercase
 --- characters case-insensitively.
 ---
---- # Setup~
+--- # Setup ~
 ---
 --- This module needs a setup with `require('mini.jump').setup({})`
 --- (replace `{}` with your `config` table). It will create global Lua table
@@ -38,13 +38,13 @@
 ---
 --- To stop module from showing non-error feedback, set `config.silent = true`.
 ---
---- # Highlight groups~
+--- # Highlight groups ~
 ---
 --- * `MiniJump` - all possible cursor positions.
 ---
 --- To change any highlight group, modify it directly with |:highlight|.
 ---
---- # Disabling~
+--- # Disabling ~
 ---
 --- To disable core functionality, set `vim.g.minijump_disable` (globally) or
 --- `vim.b.minijump_disable` (for a buffer) to `true`. Considering high number of
@@ -68,17 +68,12 @@ local H = {}
 ---
 ---@param config table|nil Module config table. See |MiniJump.config|.
 ---
----@usage `require('mini.jump').setup({})` (replace `{}` with your `config` table)
+---@usage >lua
+---   require('mini.jump').setup() -- use default config
+---   -- OR
+---   require('mini.jump').setup({}) -- replace {} with your config table
+--- <
 MiniJump.setup = function(config)
-  -- TODO: Remove after Neovim<=0.6 support is dropped
-  if vim.fn.has('nvim-0.7') == 0 then
-    vim.notify(
-      '(mini.jump) Neovim<0.7 is soft deprecated (module works but not supported).'
-        .. ' It will be deprecated after Neovim 0.9.0 release (module will not work).'
-        .. ' Please update your Neovim version.'
-    )
-  end
-
   -- Export module
   _G.MiniJump = MiniJump
 
@@ -88,18 +83,11 @@ MiniJump.setup = function(config)
   -- Apply config
   H.apply_config(config)
 
-  -- Module behavior
-  vim.api.nvim_exec(
-    [[augroup MiniJump
-        au!
-        au CursorMoved * lua MiniJump.on_cursormoved()
-        au BufLeave,InsertEnter * lua MiniJump.stop_jumping()
-      augroup END]],
-    false
-  )
+  -- Define behavior
+  H.create_autocommands()
 
-  -- Highlight groups
-  vim.cmd('hi default link MiniJump SpellRare')
+  -- Create default highlighting
+  H.create_default_hl()
 end
 
 --- Module config
@@ -184,8 +172,7 @@ MiniJump.jump = function(target, backward, till, n_times)
 
   -- Determine if target is present anywhere in order to correctly enter
   -- jumping mode. If not, jumping mode is not possible.
-  local escaped_target = vim.fn.escape(MiniJump.state.target, [[\]])
-  local search_pattern = ([[\V%s]]):format(escaped_target)
+  local search_pattern = [[\V]] .. vim.fn.escape(MiniJump.state.target, [[\]])
   local target_is_present = vim.fn.search(search_pattern, 'wn') ~= 0
   if not target_is_present then return end
 
@@ -208,6 +195,7 @@ MiniJump.jump = function(target, backward, till, n_times)
 
   -- Make jump(s)
   H.cache.n_cursor_moved = 0
+  local init_cursor_data = H.get_cursor_data()
   MiniJump.state.jumping = true
   for _ = 1, MiniJump.state.n_times do
     vim.fn.search(pattern, flags)
@@ -218,6 +206,7 @@ MiniJump.jump = function(target, backward, till, n_times)
 
   -- Track cursor position to account for movement not caught by `CursorMoved`
   H.cache.latest_cursor = H.get_cursor_data()
+  H.cache.has_changed_cursor = not vim.deep_equal(H.cache.latest_cursor, init_cursor_data)
 end
 
 --- Make smart jump
@@ -251,29 +240,6 @@ MiniJump.smart_jump = function(backward, till)
   MiniJump.jump()
 end
 
---- Make expression jump
----
---- Cache information about the jump and return string with command to perform
---- jump. Designed to be used inside Operator-pending mapping (see
---- |omap-info|). Always asks for target (via |getcharstr()|). Respects |v:count|.
----
---- All default values are taken from |MiniJump.state| to emulate latest jump.
----
----@param backward __jump_backward
----@param till __jump_till
-MiniJump.expr_jump = function(backward, till)
-  if H.is_disabled() then return '' end
-
-  -- Always ask for `target` as this will be used only in operator-pending
-  -- mode. Dot-repeat will be implemented via expression-mapping.
-  local target = H.get_target()
-  -- Stop if user supplied invalid target
-  if target == nil then return '<Esc>' end
-  H.update_state(target, backward, till, vim.v.count1)
-
-  return vim.api.nvim_replace_termcodes('v<Cmd>lua MiniJump.jump()<CR>', true, true, true)
-end
-
 --- Stop jumping
 ---
 --- Removes highlights (if any) and forces the next smart jump to prompt for
@@ -291,19 +257,9 @@ MiniJump.stop_jumping = function()
   H.unhighlight()
 end
 
---- Act on |CursorMoved|
-MiniJump.on_cursormoved = function()
-  -- Check if jumping to avoid unnecessary actions on every CursorMoved
-  if MiniJump.state.jumping then
-    H.cache.n_cursor_moved = H.cache.n_cursor_moved + 1
-    -- Stop jumping only if `CursorMoved` was not a result of smart jump
-    if H.cache.n_cursor_moved > 1 then MiniJump.stop_jumping() end
-  end
-end
-
 -- Helper data ================================================================
 -- Module default config
-H.default_config = MiniJump.config
+H.default_config = vim.deepcopy(MiniJump.config)
 
 -- Cache for various operations
 H.cache = {
@@ -333,7 +289,7 @@ H.setup_config = function(config)
   -- General idea: if some table elements are not present in user-supplied
   -- `config`, take them from default config
   vim.validate({ config = { config, 'table', true } })
-  config = vim.tbl_deep_extend('force', H.default_config, config or {})
+  config = vim.tbl_deep_extend('force', vim.deepcopy(H.default_config), config or {})
 
   -- Validate per nesting level to produce correct error message
   vim.validate({
@@ -372,18 +328,64 @@ H.apply_config = function(config)
   H.map('x', config.mappings.backward_till, '<Cmd>lua MiniJump.smart_jump(true, true)<CR>', { desc = 'Jump backward till' })
   H.map('x', config.mappings.repeat_jump, '<Cmd>lua MiniJump.jump()<CR>', { desc = 'Repeat jump' })
 
-  H.map('o', config.mappings.forward, 'v:lua.MiniJump.expr_jump(v:false, v:false)', { expr = true, desc = 'Jump forward' })
-  H.map('o', config.mappings.backward, 'v:lua.MiniJump.expr_jump(v:true, v:false)', { expr = true, desc = 'Jump backward' })
-  H.map('o', config.mappings.forward_till, 'v:lua.MiniJump.expr_jump(v:false, v:true)', { expr = true, desc = 'Jump forward till' })
-  H.map('o', config.mappings.backward_till, 'v:lua.MiniJump.expr_jump(v:true, v:true)', { expr = true, desc = 'Jump backward till' })
-  H.map('o', config.mappings.repeat_jump, 'v:lua.MiniJump.expr_jump()', { expr = true, desc = 'Repeat jump' })
+  H.map('o', config.mappings.forward, H.make_expr_jump(false, false), { expr = true, desc = 'Jump forward' })
+  H.map('o', config.mappings.backward, H.make_expr_jump(true, false), { expr = true, desc = 'Jump backward' })
+  H.map('o', config.mappings.forward_till, H.make_expr_jump(false, true), { expr = true, desc = 'Jump forward till' })
+  H.map('o', config.mappings.backward_till, H.make_expr_jump(true, true), { expr = true, desc = 'Jump backward till' })
+  H.map('o', config.mappings.repeat_jump, H.make_expr_jump(), { expr = true, desc = 'Repeat jump' })
   --stylua: ignore end
 end
 
+H.create_autocommands = function()
+  local augroup = vim.api.nvim_create_augroup('MiniJump', {})
+
+  local au = function(event, pattern, callback, desc)
+    vim.api.nvim_create_autocmd(event, { group = augroup, pattern = pattern, callback = callback, desc = desc })
+  end
+
+  au('CursorMoved', '*', H.on_cursormoved, 'On CursorMoved')
+  au({ 'BufLeave', 'InsertEnter' }, '*', MiniJump.stop_jumping, 'Stop jumping')
+end
+
+H.create_default_hl = function() vim.api.nvim_set_hl(0, 'MiniJump', { default = true, link = 'SpellRare' }) end
+
 H.is_disabled = function() return vim.g.minijump_disable == true or vim.b.minijump_disable == true end
 
-H.get_config =
-  function(config) return vim.tbl_deep_extend('force', MiniJump.config, vim.b.minijump_config or {}, config or {}) end
+H.get_config = function(config)
+  return vim.tbl_deep_extend('force', MiniJump.config, vim.b.minijump_config or {}, config or {})
+end
+
+-- Mappings -------------------------------------------------------------------
+H.make_expr_jump = function(backward, till)
+  return function()
+    if H.is_disabled() then return '' end
+
+    -- Ask for `target` for non-repeating jump as this will be used only in
+    -- operator-pending mode. Dot-repeat is supported via expression-mapping.
+    local is_repeat_jump = backward == nil or till == nil
+    local target = is_repeat_jump and MiniJump.state.target or H.get_target()
+
+    -- Stop if user supplied invalid target
+    if target == nil then return '<Esc>' end
+    H.update_state(target, backward, till, vim.v.count1)
+
+    vim.schedule(function()
+      if H.cache.has_changed_cursor then return end
+      vim.cmd('undo!')
+    end)
+    return 'v<Cmd>lua MiniJump.jump()<CR>'
+  end
+end
+
+-- Autocommands ---------------------------------------------------------------
+H.on_cursormoved = function()
+  -- Check if jumping to avoid unnecessary actions on every CursorMoved
+  if MiniJump.state.jumping then
+    H.cache.n_cursor_moved = H.cache.n_cursor_moved + 1
+    -- Stop jumping only if `CursorMoved` was not a result of smart jump
+    if H.cache.n_cursor_moved > 1 then MiniJump.stop_jumping() end
+  end
+end
 
 -- Pattern matching -----------------------------------------------------------
 H.make_search_data = function()
@@ -530,15 +532,10 @@ H.get_target = function()
   return char
 end
 
-H.map = function(mode, key, rhs, opts)
-  if key == '' then return end
-
-  opts = vim.tbl_deep_extend('force', { noremap = true }, opts or {})
-
-  -- Use mapping description only in Neovim>=0.7
-  if vim.fn.has('nvim-0.7') == 0 then opts.desc = nil end
-
-  vim.api.nvim_set_keymap(mode, key, rhs, opts)
+H.map = function(mode, lhs, rhs, opts)
+  if lhs == '' then return end
+  opts = vim.tbl_deep_extend('force', { silent = true }, opts or {})
+  vim.keymap.set(mode, lhs, rhs, opts)
 end
 
 return MiniJump

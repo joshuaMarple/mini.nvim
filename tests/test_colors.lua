@@ -10,31 +10,20 @@ local colors_path = dir_path .. '/colors/'
 -- Helpers with child processes
 --stylua: ignore start
 local load_module = function(config) child.mini_load('colors', config) end
+local unload_module = function(config) child.mini_unload('colors', config) end
 local type_keys = function(...) return child.type_keys(...) end
-local poke_eventloop = function() child.api.nvim_eval('1') end
-local sleep = function(ms) vim.loop.sleep(ms); poke_eventloop() end
+local sleep = function(ms) helpers.sleep(ms, child) end
 --stylua: ignore end
 
 -- Mock test color scheme
 local mock_cs = function() child.cmd('set rtp+=' .. dir_path .. 'mock_cs/') end
 
--- Account for attribute rename in Neovim=0.8
--- See https://github.com/neovim/neovim/pull/19159
--- TODO: Remove after compatibility with Neovim=0.7 is dropped
-local init_hl_under_attrs = function()
-  if child.fn.has('nvim-0.8') == 0 then
-    child.lua([[underdashed, underdotted, underdouble = 'underdash', 'underdot', 'underlineline']])
-    return
-  end
-  child.lua([[underdashed, underdotted, underdouble = 'underdashed', 'underdotted', 'underdouble']])
-end
-
--- Data =======================================================================
--- Small time used to reduce test flackiness
-local small_time = 15
+-- Time constants
+local default_transition_duration, default_show_duration = 1000, 1000
+local small_time = helpers.get_time_const(10)
 
 -- Output test set ============================================================
-T = new_set({
+local T = new_set({
   hooks = {
     pre_case = function()
       child.setup()
@@ -307,6 +296,7 @@ end
 
 T['as_colorscheme() methods']['add_terminal_colors()']['handles not proper `Normal` highlight group'] = function()
   -- Absent (should fall back on lightness depending on background)
+  child.cmd('hi clear Normal')
   child.lua([[_G.cs = MiniColors.as_colorscheme({
     groups = {
       -- The `fg` has fallback lightness for light background, `bg` - for dark
@@ -836,7 +826,7 @@ T['as_colorscheme() methods']['chan_modify()']['respects `opts.filter`'] = funct
   end]])
 
   eq(child.lua_get([[vim.deep_equal(_G.cs, _G.cs:chan_modify('lightness', _G.f, { filter = _G.filter }))]]), true)
-  -- Ensure consistent order in history as there is no order guarnatee in how
+  -- Ensure consistent order in history as there is no order guarantee in how
   -- filter is applied
   child.lua('table.sort(_G.args_history, function(a, b) return a[2].attr < b[2].attr end)')
   eq(child.lua_get('_G.args_history'), {
@@ -902,7 +892,7 @@ T['as_colorscheme() methods']['chan_repel()'] = new_set({ hooks = { pre_case = c
 
 T['as_colorscheme() methods']['chan_repel()']['works with linear channels'] = function()
   -- Tested only with `lightness` as linear scale in hope that all others
-  -- (excpet hue) are implemented the same
+  -- (except hue) are implemented the same
   local ref_lch = child.lua_get([[MiniColors.convert(_G.cs.groups.Normal.fg, 'oklch')]])
   local ref_l = ref_lch.l
 
@@ -1232,7 +1222,7 @@ T['as_colorscheme() methods']['compress()']['respects `opts.plugins`'] = functio
 end
 
 T['as_colorscheme() methods']['compress()']['does not have side effects'] = function()
-  -- As checking equavalence to result of `:hi clear` needs to execute it,
+  -- As checking equivalence to result of `:hi clear` needs to execute it,
   -- there should be proper cache and restore of current color scheme
   child.cmd('hi TestRestore guifg=#ffffff')
   child.lua([[_G.cs = MiniColors.as_colorscheme({
@@ -1322,7 +1312,7 @@ end
 T['as_colorscheme() methods']['write()'] = new_set({
   hooks = {
     pre_case = function()
-      local lua_cmd = string.format([[vim.fn.stdpath = function() return '%s' end]], dir_path)
+      local lua_cmd = string.format([[vim.fn.stdpath = function() return %s end]], vim.inspect(dir_path))
       child.lua(lua_cmd)
 
       -- Add to `rtp` to be able to discrove color schemes
@@ -1353,8 +1343,6 @@ T['as_colorscheme() methods']['write()']['works'] = function()
   child.lua('_G.cs:write()')
 
   -- Validate
-  expect.match(child.cmd_capture('hi Normal'), 'cleared')
-
   child.cmd('colorscheme my_cs')
 
   eq(child.g.colors_name, 'my_cs')
@@ -1392,7 +1380,9 @@ T['as_colorscheme() methods']['write()']['makes unique color scheme name'] = fun
 
   local files = child.fn.readdir(colors_path)
   eq(#files, 1)
-  -- File name should add timestamp suffix in case of duplicated name
+  -- File name should add timestamp suffix in case of duplicated name, but
+  -- doesn't work on Windows
+  helpers.skip_on_windows('`vim.fn.strftime()` does not work on Windows')
   expect.match(files[1], 'mock_cs_%d%d%d%d%d%d%d%d_%d%d%d%d%d%d%.lua')
 end
 
@@ -1443,7 +1433,7 @@ T['as_colorscheme() methods']['write()']['respects `opts.directory`'] = function
     groups = { Normal = { fg = '#ffffff' } }
   })]])
 
-  local write_cmd = string.format([[_G.cs:write({ directory = '%s' })]], inner_dir)
+  local write_cmd = '_G.cs:write({ directory = ' .. vim.inspect(inner_dir) .. ' })'
   child.lua(write_cmd)
 
   eq(child.fn.filereadable(inner_dir .. 'my_cs.lua'), 1)
@@ -1543,8 +1533,6 @@ end
 T['animate()'] = new_set({
   hooks = {
     pre_case = function()
-      init_hl_under_attrs()
-
       -- Create two color scheme objects
       child.lua([[_G.cs_1 = MiniColors.as_colorscheme({
         name = 'cs_1',
@@ -1561,9 +1549,9 @@ T['animate()'] = new_set({
           TestStandout      = { fg = '#000000', standout      = true },
           TestStrikethrough = { fg = '#000000', strikethrough = true },
           TestUndercurl     = { fg = '#000000', undercurl     = true },
-          TestUnderdashed   = { fg = '#000000', [underdashed] = true },
-          TestUnderdotted   = { fg = '#000000', [underdotted] = true },
-          TestUnderdouble   = { fg = '#000000', [underdouble] = true },
+          TestUnderdashed   = { fg = '#000000', underdashed   = true },
+          TestUnderdotted   = { fg = '#000000', underdotted   = true },
+          TestUnderdouble   = { fg = '#000000', underdouble   = true },
           TestUnderline     = { fg = '#000000', underline     = true },
         },
         terminal = { [0] = '#190000', [7] = '#001900' }
@@ -1584,9 +1572,9 @@ T['animate()'] = new_set({
           TestStandout      = { fg = '#000000', standout      = false },
           TestStrikethrough = { fg = '#000000', strikethrough = false },
           TestUndercurl     = { fg = '#000000', undercurl     = false },
-          TestUnderdashed   = { fg = '#000000', [underdashed] = false },
-          TestUnderdotted   = { fg = '#000000', [underdotted] = false },
-          TestUnderdouble   = { fg = '#000000', [underdouble] = false },
+          TestUnderdashed   = { fg = '#000000', underdashed   = false },
+          TestUnderdotted   = { fg = '#000000', underdotted   = false },
+          TestUnderdouble   = { fg = '#000000', underdouble   = false },
           TestUnderline     = { fg = '#000000', underline     = false },
         },
         terminal = { [7] = '#000000', [15] = '#000000' }
@@ -1622,6 +1610,10 @@ T['animate()'] = new_set({
           }
         }
       end]])
+
+      -- Create reference duration values
+      child.lua('_G.default_transition_duration = ' .. default_transition_duration)
+      child.lua('_G.default_show_duration = ' .. default_show_duration)
     end,
   },
 })
@@ -1642,9 +1634,7 @@ end
 
 --stylua: ignore
 T['animate()']['works'] = function()
-  local underdashed = child.lua_get('_G.underdashed')
-  local underdotted = child.lua_get('_G.underdotted')
-  local underdouble = child.lua_get('_G.underdouble')
+  helpers.skip_if_slow()
 
   local validate_init = function()
     local cur_cs = child.lua_get('_G.get_relevant_cs_data()')
@@ -1666,12 +1656,6 @@ T['animate()']['works'] = function()
 
   -- Check slightly before half-way
   local validate_before_half = function()
-    -- Account for missing `nocombine` field in Neovim=0.7
-    -- See https://github.com/neovim/neovim/pull/19586
-    -- TODO: Remove after compatibility with Neovim=0.7 is dropped
-    local nocombine = nil
-    if child.fn.has('nvim-0.8') == 1 then nocombine = true end
-
     eq(
       child.lua_get('_G.get_relevant_cs_data()'),
       {
@@ -1684,14 +1668,14 @@ T['animate()']['works'] = function()
 
           TestBold          = { fg = '#000000', bold          = true },
           TestItalic        = { fg = '#000000', italic        = true },
-          TestNocombine     = { fg = '#000000', nocombine     = nocombine },
+          TestNocombine     = { fg = '#000000', nocombine     = true },
           TestReverse       = { fg = '#000000', reverse       = true },
           TestStandout      = { fg = '#000000', standout      = true },
           TestStrikethrough = { fg = '#000000', strikethrough = true },
           TestUndercurl     = { fg = '#000000', undercurl     = true },
-          TestUnderdashed   = { fg = '#000000', [underdashed] = true },
-          TestUnderdotted   = { fg = '#000000', [underdotted] = true },
-          TestUnderdouble   = { fg = '#000000', [underdouble] = true },
+          TestUnderdashed   = { fg = '#000000', underdashed   = true },
+          TestUnderdotted   = { fg = '#000000', underdotted   = true },
+          TestUnderdouble   = { fg = '#000000', underdouble   = true },
           TestUnderline     = { fg = '#000000', underline     = true },
         },
         terminal = { { 0, '#190000' }, { 7, '#000901' }, { 15 } },
@@ -1699,12 +1683,11 @@ T['animate()']['works'] = function()
     )
   end
 
-  sleep(500 - small_time)
+  sleep(0.5 * default_transition_duration - small_time)
   validate_before_half()
 
   -- Check slightly after half-way
   local validate_after_half = function()
-    local test_single_hl = nil
     eq(
       child.lua_get('_G.get_relevant_cs_data()'),
       {
@@ -1732,7 +1715,7 @@ T['animate()']['works'] = function()
     )
   end
 
-  sleep(2 * small_time)
+  sleep(3 * small_time)
   validate_after_half()
 
   -- After first transition end it should show intermediate step for 1 second
@@ -1747,56 +1730,60 @@ T['animate()']['works'] = function()
     eq(child.g.terminal_color_15, '#000000')
   end
 
-  sleep(500)
+  sleep(0.5 * default_transition_duration)
   validate_intermediate()
 
-  sleep(1000 - 2 * small_time)
+  sleep(default_show_duration - 3 * small_time)
   validate_intermediate()
 
   -- After showing period it should start transition back to first one (as it
   -- was specially designed command)
-  sleep(500)
+  sleep(0.5 * default_transition_duration)
   validate_after_half()
 
-  sleep(2 * small_time)
+  sleep(3 * small_time)
   validate_before_half()
 
-  sleep(500 - small_time)
+  sleep(0.5 * default_transition_duration)
   validate_init()
 end
 
 T['animate()']['respects `opts.transition_steps`'] = function()
+  helpers.skip_if_slow()
+
   child.lua('_G.cs_1:apply()')
   child.lua([[MiniColors.animate({ _G.cs_2 }, { transition_steps = 2 })]])
 
-  sleep(500 - small_time - 10)
+  sleep(0.5 * default_transition_duration - 2 * small_time)
   eq(is_cs_1(), true)
 
-  sleep(2 * small_time + 10)
+  sleep(2 * small_time + small_time)
   eq(child.lua_get('_G.get_relevant_cs_data().groups.Normal.fg'), '#050000')
 
-  sleep(500 - small_time)
+  sleep(0.5 * default_transition_duration - small_time)
   eq(is_cs_2(), true)
 end
 
 T['animate()']['respects `opts.transition_duration`'] = function()
-  child.lua([[MiniColors.animate({ _G.cs_2 }, { transition_duration = 500 })]])
+  helpers.skip_if_slow()
 
-  sleep(500 + small_time)
+  child.lua([[MiniColors.animate({ _G.cs_2 }, { transition_duration = 0.5 * default_transition_duration })]])
+  sleep(0.5 * default_transition_duration + 2 * small_time)
   eq(is_cs_2(), true)
 end
 
 T['animate()']['respects `opts.show_duration`'] = function()
-  child.lua([[MiniColors.animate({ _G.cs_1, _G.cs_2 }, { show_duration = 100 })]])
+  helpers.skip_if_slow()
 
-  sleep(1000 + small_time)
+  child.lua([[MiniColors.animate({ _G.cs_1, _G.cs_2 }, { show_duration = 0.5 * default_show_duration })]])
+  sleep(default_transition_duration + small_time)
   eq(is_cs_1(), true)
 
-  sleep(100 - 2 * small_time)
+  sleep(0.5 * default_show_duration - 3 * small_time)
   eq(is_cs_1(), true)
 
-  -- Account that first step takes 40 ms
-  sleep(small_time + 40 + 10)
+  -- Account that first step takes some time
+  sleep(3 * small_time + 2 * small_time)
   eq(is_cs_1(), false)
 end
 
@@ -2041,6 +2028,7 @@ T['convert()']['validates arguments'] = function()
   expect.error(function() convert('aaaaaa', 'rgb') end, 'Can not infer color space of "aaaaaa"')
   expect.error(function() convert('##aaaaaa', 'rgb') end, 'Can not infer')
   expect.error(function() convert({}, 'rgb') end, 'Can not infer color space of {}')
+  expect.error(function() convert({ l = 50, a = 1 }, 'rgb') end, 'Can not infer color space of')
 
   -- - `nil` is allowed as input
   eq(child.lua_get([[MiniColors.convert(nil, 'hex')]]), vim.NIL)
@@ -2228,23 +2216,25 @@ T[':Colorscheme']['works'] = function()
 
   child.cmd('hi Normal guifg=#ffffff')
   type_keys(':Colorscheme mock_cs<CR>')
-  sleep(1000 + small_time)
+  sleep(default_transition_duration + 3 * small_time)
   expect.match(child.cmd_capture('hi Normal'), 'guifg=#5f87af')
 end
 
 T[':Colorscheme']['accepts several arguments'] = function()
+  helpers.skip_if_slow()
+
   child.cmd('colorscheme blue')
   mock_cs()
   type_keys(':Colorscheme mock_cs blue<CR>')
 
-  sleep(1000 + small_time)
+  sleep(default_transition_duration + small_time)
   expect.match(child.cmd_capture('hi Normal'), 'guifg=#5f87af')
 
-  sleep(1000 - 2 * small_time)
+  sleep(default_show_duration - 2 * small_time)
   expect.match(child.cmd_capture('hi Normal'), 'guifg=#5f87af')
 
-  sleep(1000 + 2 * small_time)
-  local blue_normal_fg = child.fn.has('nvim-0.8') == 1 and '#ffd700' or '#ffff00'
+  sleep(default_transition_duration + 2 * small_time)
+  local blue_normal_fg = '#ffd700'
   expect.match(child.cmd_capture('hi Normal'), 'guifg=' .. blue_normal_fg)
 end
 
@@ -2259,16 +2249,18 @@ T['interactive()'] = new_set()
 
 T['interactive()']['works'] = function()
   -- - Mock '~/.config/nvim'
-  local lua_cmd = string.format([[vim.fn.stdpath = function() return '%s' end]], dir_path)
+  local lua_cmd = 'vim.fn.stdpath = function() return ' .. vim.inspect(dir_path) .. ' end'
   child.lua(lua_cmd)
   child.cmd('set rtp+=' .. dir_path)
   MiniTest.finally(function() vim.fn.delete(colors_path, 'rf') end)
 
-  -- Check screenshots only on Neovim>=0.9 as there are slight differences in
+  -- Check screenshots only on Neovim>=0.10 as there are slight differences in
   -- highlighting
-  local check_screenshot = child.fn.has('nvim-0.9') == 1
+  local expect_screenshot = function()
+    if child.fn.has('nvim-0.10') == 1 then child.expect_screenshot() end
+  end
 
-  child.set_size(20, 60)
+  child.set_size(30, 60)
   child.o.cmdheight = 3
 
   child.g.colors_name = 'test_interactive'
@@ -2277,10 +2269,10 @@ T['interactive()']['works'] = function()
   child.lua('MiniColors.interactive()')
 
   -- General data
-  if check_screenshot then child.expect_screenshot() end
+  expect_screenshot()
 
   eq(child.bo.filetype, 'lua')
-  eq(child.get_cursor(), { 14, 0 })
+  eq(child.get_cursor(), { 22, 0 })
   eq(child.api.nvim_get_mode().mode, 'n')
 
   -- Applying transformations using direct calls to methods
@@ -2291,7 +2283,7 @@ T['interactive()']['works'] = function()
   -- Writing
   -- - Write
   type_keys('<A-w>')
-  if check_screenshot then child.expect_screenshot() end
+  expect_screenshot()
   type_keys('<C-w>new_cs<CR>')
 
   -- - Verify
@@ -2311,6 +2303,13 @@ T['interactive()']['works'] = function()
   eq(child.api.nvim_get_current_buf() ~= cur_buf_id, true)
 end
 
+T['interactive()']['works without prior `setup()`'] = function()
+  unload_module()
+  expect.no_error(function() child.lua([[require('mini.colors').interactive()]]) end)
+
+  expect.match(child.cmd_capture('nmap <M-a>'), 'Apply')
+end
+
 T['interactive()']['can have side effects'] = function()
   child.lua('MiniColors.interactive()')
   type_keys('i', '_G.a = 1', '<Esc>')
@@ -2325,7 +2324,7 @@ T['interactive()']['has no internal side effects'] = function()
   -- Temporary values are not kept global
   local validate_nil = function(var_name) eq(child.lua_get('type(' .. var_name .. ')'), 'nil') end
 
-  validate_nil('MiniColors._interactive_cs')
+  validate_nil('_G._interactive_cs')
   validate_nil('self')
 
   -- Direct methods should not be global

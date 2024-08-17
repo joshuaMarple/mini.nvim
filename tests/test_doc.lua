@@ -30,7 +30,7 @@ local default_section_names = {
 --stylua: ignore end
 
 -- Output test set ============================================================
-T = new_set({
+local T = new_set({
   hooks = {
     pre_case = function()
       child.setup()
@@ -124,14 +124,14 @@ end
 T['default_hooks'] = new_set()
 
 T['default_hooks']['is same as default `MiniDoc.config.hooks`'] = function()
-  -- `tostring()` when applied to table returns string with its hex id. So this
-  -- checks for *exact* equality of two tables.
-  eq(child.lua_get('tostring(MiniDoc.default_hooks) == tostring(MiniDoc.config.hooks)'), true)
+  -- `vim.deep_equal()` tests equality of functions by their address, so this
+  -- indeed tests what it should
+  eq(child.lua_get('vim.deep_equal(MiniDoc.default_hooks, MiniDoc.config.hooks)'), true)
 end
 
 -- General overview of testing workflow:
 -- - Tests are organized per test scope: collection of source code file with
---   annotations demonstating similar functionality. Every test scope organized
+--   annotations demonstrating similar functionality. Every test scope organized
 --   in separate subdirectory of 'tests/dir-doc'.
 -- - Testing is performed by evaluating `MiniDoc.generate()` (with possibly
 --   non-default arguments) with current directory being equal to directory of
@@ -143,7 +143,7 @@ end
 --     - Update files in existing test scope and regenerate reference file (run
 --       corresponding `MiniDoc.generate()` manually and save it to correct
 --       '***_reference.txt' file).
---     - Add new test scope: create direcotry, add files, generate reference
+--     - Add new test scope: create directory, add files, generate reference
 --       help file, add separate test case.
 T['generate()'] = new_set({
   hooks = {

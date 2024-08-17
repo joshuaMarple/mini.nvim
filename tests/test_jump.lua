@@ -14,8 +14,7 @@ local get_cursor = function(...) return child.get_cursor(...) end
 local set_lines = function(...) return child.set_lines(...) end
 local get_lines = function(...) return child.get_lines(...) end
 local type_keys = function(...) return child.type_keys(...) end
-local poke_eventloop = function() child.api.nvim_eval('1') end
-local sleep = function(ms) vim.loop.sleep(ms); poke_eventloop() end
+local sleep = function(ms) helpers.sleep(ms, child, true) end
 --stylua: ignore end
 
 -- Data =======================================================================
@@ -26,10 +25,13 @@ local example_lines = {
   '`!@#$%^&*()_+=.,1234567890',
 }
 
-local test_times = { highlight = 250 }
+-- Time constants
+local default_highlight_delay = 250
+local helper_message_delay = 1000
+local small_time = helpers.get_time_const(10)
 
 -- Output test set ============================================================
-T = new_set({
+local T = new_set({
   hooks = {
     pre_case = function()
       child.setup()
@@ -50,6 +52,8 @@ T['setup()']['creates side effects'] = function()
   eq(child.fn.exists('#MiniJump'), 1)
 
   -- Highlight groups
+  child.cmd('hi clear')
+  load_module()
   expect.match(child.cmd_capture('hi MiniJump'), 'links to SpellRare')
 end
 
@@ -97,15 +101,15 @@ T['setup()']['validates `config` argument'] = function()
 end
 
 T['setup()']['properly handles `config.mappings`'] = function()
-  local has_map = function(lhs) return child.cmd_capture('nmap ' .. lhs):find('MiniJump') ~= nil end
-  eq(has_map('f'), true)
+  local has_map = function(lhs, pattern) return child.cmd_capture('nmap ' .. lhs):find(pattern) ~= nil end
+  eq(has_map('f', 'Jump'), true)
 
   unload_module()
   child.api.nvim_del_keymap('n', 'f')
 
   -- Supplying empty string should mean "don't create keymap"
   load_module({ mappings = { forward = '' } })
-  eq(has_map('f'), false)
+  eq(has_map('f', 'Jump'), false)
 end
 
 T['state'] = new_set({
@@ -313,7 +317,7 @@ T['smart_jump()'] = new_set({
 
 T['smart_jump()']['works'] = function()
   child.lua_notify('MiniJump.smart_jump()')
-  poke_eventloop()
+  child.poke_eventloop()
   type_keys('m')
   eq(get_cursor(), { 1, 4 })
 end
@@ -377,11 +381,8 @@ T['Jumping with f/t/F/T']['works in Operator-pending mode'] = new_set({
   test = function(key, line_seq)
     set_lines({ ' 1e2e3e4e5e_ ' })
 
-    if key == key:lower() then
-      set_cursor(1, 0)
-    else
-      set_cursor(1, 12)
-    end
+    local start_col = key == key:lower() and 0 or 12
+    set_cursor(1, start_col)
 
     -- Apply once
     type_keys('d', key, 'e')
@@ -408,7 +409,7 @@ T['Jumping with f/t/F/T']['allows dot-repeat'] = new_set({
   parametrize = { { 'f' }, { 't' }, { 'F' }, { 'T' } },
 }, {
   test = function(key)
-    -- Start with two equal lines (wth enough targets) to check equal effect
+    -- Start with two equal lines (with enough targets) to check equal effect
     set_lines({ ' 1e2e3e4e_ ', ' 1e2e3e4e_ ' })
 
     local lines = get_lines()
@@ -517,18 +518,62 @@ T['Jumping with f/t/F/T']['enters jumping mode even if first jump is impossible'
 end
 
 T['Jumping with f/t/F/T']['does nothing if there is no place to jump'] = function()
-  set_lines({ 'aaaaaaa' })
-
-  for _, key in ipairs({ 'f', 't', 'F', 'T' }) do
-    local start_col = key == key:lower() and 0 or 6
+  -- Normal mode
+  local validate_normal = function(keys, start_col, ref_mode)
+    set_lines({ 'abcdefg' })
     set_cursor(1, start_col)
-    type_keys(key, 'e')
-    -- It shouldn't move anywhere
+
+    type_keys(keys, 'd')
+
+    -- It shouldn't move anywhere and should not modify text
     eq(get_cursor(), { 1, start_col })
-    -- If implemented incorrectly, this can also fail because of consecutive
-    -- tests for different letters. Ensure there is no jumping.
+    eq(get_lines(), { 'abcdefg' })
+    eq(child.fn.mode(), ref_mode)
+
+    -- Ensure there is no jumping
     child.lua('MiniJump.stop_jumping()')
+    child.ensure_normal_mode()
   end
+
+  validate_normal('f', 4, 'n')
+  validate_normal('t', 4, 'n')
+  validate_normal('F', 2, 'n')
+  validate_normal('T', 2, 'n')
+
+  validate_normal('vf', 4, 'v')
+  validate_normal('vt', 4, 'v')
+  validate_normal('vF', 2, 'v')
+  validate_normal('vT', 2, 'v')
+
+  validate_normal('df', 4, 'n')
+  validate_normal('dt', 4, 'n')
+  validate_normal('dF', 2, 'n')
+  validate_normal('dT', 2, 'n')
+end
+
+T['Jumping with f/t/F/T']['can be dot-repeated if did not jump at first'] = function()
+  -- Normal mode
+  local validate = function(keys, col_1, col_2, line_2)
+    set_lines({ 'abcdefg' })
+    set_cursor(1, col_1)
+
+    type_keys(keys, 'd')
+    eq(get_cursor(), { 1, col_1 })
+    eq(get_lines(), { 'abcdefg' })
+
+    set_cursor(1, col_2)
+    type_keys('.')
+    eq(get_lines(), { line_2 })
+
+    -- Ensure there is no jumping
+    child.lua('MiniJump.stop_jumping()')
+    child.ensure_normal_mode()
+  end
+
+  validate('df', 5, 1, 'aefg')
+  validate('dt', 5, 1, 'adefg')
+  validate('dF', 1, 5, 'abcg')
+  validate('dT', 1, 5, 'abcdg')
 end
 
 T['Jumping with f/t/F/T']['stops prompting for target if hit `<Esc>` or `<C-c>`'] = new_set({
@@ -617,11 +662,11 @@ T['Jumping with f/t/F/T']['shows helper message after one idle second'] = functi
   set_lines(example_lines)
   set_cursor(1, 0)
   type_keys('f', 'e')
-  sleep(200)
+  sleep(0.5 * helper_message_delay)
 
   -- Start another jump
   type_keys('h', 'f')
-  sleep(1000)
+  sleep(helper_message_delay + small_time)
   -- Should show colored helper message without adding it to `:messages` and
   -- causing hit-enter-prompt
   child.expect_screenshot()
@@ -690,14 +735,14 @@ T['Jumping with f/t/F/T']['respects `config.silent`'] = function()
   set_lines({ '1e2e3e4e' })
   set_cursor(1, 0)
   type_keys('f')
-  sleep(1000 + 15)
+  sleep(helper_message_delay + small_time)
 
   -- Should not show helper message
   child.expect_screenshot()
 end
 
 T['Jumping with f/t/F/T']["respects 'ignorecase'"] = function()
-  child.cmd('set ignorecase')
+  child.o.ignorecase = true
   set_lines({ ' 1e2E3E4e_ ' })
 
   set_cursor(1, 0)
@@ -718,7 +763,8 @@ T['Jumping with f/t/F/T']["respects 'ignorecase'"] = function()
 end
 
 T['Jumping with f/t/F/T']["respects 'smartcase'"] = function()
-  child.cmd('set ignorecase smartcase')
+  child.o.ignorecase = true
+  child.o.smartcase = true
   set_lines({ ' 1e2E3E4e_ ' })
 
   set_cursor(1, 0)
@@ -810,7 +856,7 @@ T['Repeat jump with ;']['works in Normal and Visual mode'] = new_set({
   end,
 })
 
-T['Repeat jump with ;']['works in Operator-pending mode'] = function()
+T['Repeat jump with ;']['works after jump in Operator-pending mode'] = function()
   -- It doesn't repeat actual operation, just performs same jump
   set_lines({ '1e2e3e4e5e' })
   set_cursor(1, 0)
@@ -826,6 +872,16 @@ T['Repeat jump with ;']['works in Operator-pending mode'] = function()
   type_keys('d', '2f', 'e', ';')
   eq(get_lines(), { '3e4e5e' })
   eq(get_cursor(), { 1, 3 })
+end
+
+T['Repeat jump with ;']['works in Operator-pending mode'] = function()
+  set_lines({ '1e2e3e4e5e' })
+  set_cursor(1, 0)
+
+  -- Should repeat without asking for target
+  type_keys('f', 'e', 'd', ';')
+  eq(get_lines(), { '13e4e5e' })
+  eq(get_cursor(), { 1, 1 })
 end
 
 T['Repeat jump with ;']['works with different mapping'] = function()
@@ -884,10 +940,10 @@ T['Delayed highlighting']['works'] = new_set(
       set_cursor(1, key == key:lower() and 0 or 3)
       type_keys(key, 'e')
 
-      sleep(test_times.highlight - 10)
+      sleep(default_highlight_delay - small_time)
       -- Nothing should yet be shown
       child.expect_screenshot()
-      sleep(10)
+      sleep(small_time)
       -- Everything should be shown
       child.expect_screenshot()
     end,
@@ -901,15 +957,16 @@ T['Delayed highlighting']['respects `config.delay.highlight`'] = new_set(
       local key = vim.endswith(direction, '_till') and 't' or 'f'
       key = vim.startswith(direction, 'backward') and key:upper() or key
 
-      child.lua('MiniJump.config.delay.highlight = 100')
+      local new_highlight_delay = 5 * small_time
+      child.lua('MiniJump.config.delay.highlight = ' .. new_highlight_delay)
 
       set_cursor(1, key == key:lower() and 0 or 3)
       type_keys(key, 'e')
 
-      sleep(100 - 10)
+      sleep(new_highlight_delay - small_time)
       -- Nothing should yet be shown
       child.expect_screenshot()
-      sleep(10)
+      sleep(small_time)
       -- Everything should be shown
       child.expect_screenshot()
     end,
@@ -917,16 +974,17 @@ T['Delayed highlighting']['respects `config.delay.highlight`'] = new_set(
 )
 
 T['Delayed highlighting']['respects `vim.b.minijump_config`'] = function()
-  child.lua('MiniJump.config.delay.highlight = 100')
-  child.b.minijump_config = { delay = { highlight = 50 } }
+  child.lua('MiniJump.config.delay.highlight = ' .. (5 * small_time))
+  local new_highlight_delay = 3 * small_time
+  child.b.minijump_config = { delay = { highlight = new_highlight_delay } }
 
   set_cursor(1, 0)
   type_keys('f', 'e')
 
-  sleep(50 - 10)
+  sleep(new_highlight_delay - small_time)
   -- Nothing should yet be shown
   child.expect_screenshot()
-  sleep(10)
+  sleep(small_time)
   -- Everything should be shown
   child.expect_screenshot()
 end
@@ -936,23 +994,23 @@ T['Delayed highlighting']['implements debounce-style delay'] = function()
   set_cursor(1, 0)
 
   type_keys('f', 'e')
-  sleep(test_times.highlight - 10)
+  sleep(default_highlight_delay - small_time)
   -- Nothing should yet be shown
   child.expect_screenshot()
 
   type_keys('f')
-  sleep(test_times.highlight - 10)
+  sleep(default_highlight_delay - small_time)
   -- Nothing should yet be shown (because debounce-style)
   child.expect_screenshot()
 
-  sleep(10)
+  sleep(small_time)
   -- Nothing should yet be shown
   child.expect_screenshot()
 end
 
 T['Delayed highlighting']['stops immediately when not jumping'] = function()
   type_keys('f', 'e')
-  sleep(test_times.highlight)
+  sleep(default_highlight_delay)
   -- Should be highlighted
   child.expect_screenshot()
 
@@ -967,7 +1025,7 @@ T['Delayed highlighting']['updates immediately within same jumping'] = function(
   set_cursor(1, 0)
   type_keys('f', 'e')
 
-  sleep(test_times.highlight)
+  sleep(default_highlight_delay)
   child.expect_screenshot()
   type_keys('t')
   child.expect_screenshot()
@@ -977,50 +1035,51 @@ T['Delayed highlighting']['updates immediately within same jumping'] = function(
 end
 
 T['Delayed highlighting']['never highlights in Insert mode'] = function()
+  child.set_size(5, 15)
+
   set_lines({ '1e2f' })
 
   set_cursor(1, 0)
   type_keys('f', 'e')
 
-  sleep(test_times.highlight)
+  sleep(default_highlight_delay)
   child.expect_screenshot()
 
   type_keys('ct', 'f')
-  sleep(test_times.highlight + 10)
+  sleep(default_highlight_delay + small_time)
   -- Shouldn't start highlighting
   child.expect_screenshot()
 end
 
 T['Delayed highlighting']["respects 'ignorecase'"] = function()
-  child.cmd('set ignorecase')
+  child.o.ignorecase = true
   set_lines({ '1e2E' })
 
   set_cursor(1, 0)
   type_keys('f', 'e')
 
-  sleep(test_times.highlight)
+  sleep(default_highlight_delay)
   -- Should highlight both 'e'and 'E'
   child.expect_screenshot()
 end
 
 T['Delayed highlighting']["respects 'smartcase'"] = function()
-  child.cmd('set ignorecase smartcase')
+  child.o.ignorecase = true
+  child.o.smartcase = true
   set_lines({ '1e2E3e4E' })
 
   set_cursor(1, 0)
   type_keys('f', 'E')
 
-  sleep(test_times.highlight)
+  sleep(default_highlight_delay)
   -- Should highlight only 'E'
   child.expect_screenshot()
 end
 
-local delay = test_times.highlight + 25
-
 T['Stop jumping after idle'] = new_set({
   hooks = {
     pre_case = function()
-      child.lua('MiniJump.config.delay.idle_stop = ' .. delay)
+      child.lua('MiniJump.config.delay.idle_stop = ' .. (default_highlight_delay + 2 * small_time))
       set_lines({ '1e2e3e4e', 'ff' })
       set_cursor(1, 0)
       child.set_size(5, 12)
@@ -1029,18 +1088,19 @@ T['Stop jumping after idle'] = new_set({
 })
 
 T['Stop jumping after idle']['works'] = function()
+  local idle_stop_delay = child.lua_get('MiniJump.config.delay.idle_stop')
   type_keys('f', 'e')
   eq(get_cursor(), { 1, 1 })
 
   -- It works
-  sleep(delay - 10)
+  sleep(idle_stop_delay - small_time)
   type_keys('f')
   eq(get_cursor(), { 1, 3 })
-  -- Should highlight
+  -- Should highlight (as idle delay is bigger than highlight delay)
   child.expect_screenshot()
 
   -- It implements debounce-style delay
-  sleep(delay + 1)
+  sleep(idle_stop_delay + small_time)
   -- It should have stopped jumping and this should initiate new jump
   type_keys('f', 'f')
   eq(get_cursor(), { 2, 0 })
@@ -1049,19 +1109,21 @@ T['Stop jumping after idle']['works'] = function()
 end
 
 T['Stop jumping after idle']['works if should be done before target highlighting'] = function()
-  child.lua('MiniJump.config.delay.idle_stop = ' .. test_times.highlight - 50)
+  child.lua('MiniJump.config.delay.idle_stop = ' .. (default_highlight_delay - small_time))
 
   type_keys('f', 'e')
   eq(get_cursor(), { 1, 1 })
-  sleep(test_times.highlight + 1)
+  sleep(default_highlight_delay + small_time)
   -- Should also not trigger highlighting
   child.expect_screenshot()
 end
 
 T['Stop jumping after idle']['respects `vim.b.minijump_config`'] = function()
-  child.b.minijump_config = { delay = { idle_stop = 50 } }
+  local idle_stop_delay = child.lua_get('MiniJump.config.delay.idle_stop')
+  local new_idle_stop_delay = idle_stop_delay - 2 * small_time
+  child.b.minijump_config = { delay = { idle_stop = new_idle_stop_delay } }
   type_keys('f', 'e')
-  sleep(50)
+  sleep(new_idle_stop_delay)
 
   -- It should have stopped jumping and this should initiate new jump
   type_keys('f', 'f')
